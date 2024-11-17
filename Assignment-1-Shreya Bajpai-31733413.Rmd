@@ -1,0 +1,351 @@
+---
+title: "CSCI E-106:Assignment 1"
+author: "Shreya Bajpai"
+date: "2024-09-06"
+output:
+    pdf_document: default
+    html_document:
+    df_print: paged
+---
+
+```{r setup, echo=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1: teengamb
+The dataset teengamb concerns a study of teenage gambling in Britain. You can download this data set by installing faraway library. To get the data set, copy and paste the r command: install.packages("faraway");library(faraway); data(teengamb, package="faraway"). (40 points)
+
+The list variables are described below:
+
+sex:0=male, 1=female
+
+status: Socioeconomic status score based on parents' occupation
+
+income: in pounds per week
+
+verbal: verbal score in words out of 12 correctly defined
+
+gamble: expenditure on gambling in pounds per year
+
+
+As per the instructions, we first import the library, faraway, and extract the data from the dataset: teengamb.
+```{r basicload}
+library(faraway)
+library(ggplot2)
+data(teengamb, package="faraway")
+```
+
+### Problem 1A
+__We are interested in predicting the expenditure on gambling. What is the dependent variable? and What are the independent variables? (10 points)__
+
+If we intend to predict the expenditure on gambling, then the **dependent variable** is `gamble`, which is the focus of the study and the variable we expect will change based on the variations in the **independent variable(s)**: `sex`, `socioeconomic status`, `income` and `verbal score`.
+
+
+Viewing the dependent variable's, `gamble`, histogram shows the spread (variability) and central tendency (mean, median) of the dependent variable which gives insight into how values are distributed across the range for this sample. The histogram below depicts that our dependent variable is __right-skewed__ indicating that the linear regression model, which assumes normality of distribution in residuals (errors), might struggle to capture the pattern, leading to higher residuals (errors) and lower predictive accuracy if a linear regression model is applied. However, as part of this analysis, we do not intend to implement linear regression, but this is interesting to capture before we dive in.
+
+```{r histtest}
+ggplot(teengamb, aes(gamble)) +  geom_histogram(color = "#000000", fill = "#FFDF00", bins=20) + labs(
+    title = "Histogram of Gambling Expenditure",
+    caption = "Source: teengamb dataset",
+    x = "Gambling Expenditure (per annum)",
+    y = "Count"
+  ) + theme_classic() + 
+  theme(
+    plot.title = element_text(color = "#000080", size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10, face = "bold"),
+    plot.caption = element_text(face = "italic")
+  )
+```
+
+### Problem 1B
+__Make a numerical and graphical summary of the data, commenting on any features that you find interesting. Limit the output you present to a quantity that a busy reader would find sufficient to get a basic understanding of the data. (30 points)__
+
+To understand the data of 47 observations (rows) of 5 variables (columns) (`sex`, `status`, `income`, `verbal` and `gamble`), we run a summary on the data set. The numerical summary shows the dataset's mean, median, minimumns, maximums, and more for each given variable.
+```{r getsummary}
+str(teengamb)
+summary(teengamb)
+```
+At first glance, we see a few discrepancies with the data: 
+
+
+1. `income` is in pounds (£) per week, but `gamble` is in pounds (£) per year, which prevents us from comparing the two variables on the same cadence as the timeline is different. As a result, when we consider the proportion of weekly income to gambling expendtiures, we can consider multiplying it by 52 (weeks in a year) to gain perspective on the proportion of total annual income spent on annual gambling expenditure.
+
+2. `sex` is not a quantitative variable, so the numeric summary details in the raw form for this variable are not informative. To turn a binary variable, sex, from a quantitative to a categorical variable, we can use the factor() function. 
+
+
+I intend to extract insights on basis of `sex`, a categorical variable, so I distribute the dataset into a male and female dataset and note whether there are differences or biases in the relationship between `sex` and the other independent variables.
+
+```{r transformdata}
+teengamb$sex <- factor(teengamb$sex)
+levels(teengamb$sex) <- c("male", "female")
+gamb_male <- subset(teengamb, sex == "male")
+gamb_female <- subset(teengamb, sex == "female")
+```
+
+
+1. First, we explore the _socioeconomic status_ for males in contrast to females and we see that the median and mean socioeconomic status score based on parents' occupation is higher for males (Median: 51.00, µ: 52.00) than females (Median: 30.00 µ: 35.26). We need to be mindful that there is a greater number of males than females in this sample, but this contrast is stark.
+
+
+2. Second, we explore _income_, which we see is not as stark for the medians of the two genders (Male Median: £3.38/week (~ £175.76 annual income per year), Female Median: £3.00/week (~ £156.00 annual income per year)) despite the sample containing more males than females and the assumption that males generally earn more than females.
+
+
+3. Third, we examine the _verbal score in words out of 12 correctly defined_ which showcases that males and females perform similarly when considering the median of both datasets (Male Median: 7.000, Female Median: 6.000).
+
+
+4. Finally, we examine how the _sex_ of an individual in this sample impacts the dependent variable, gambling, and the observations are worth examining. There is a notable difference between all metrics when comparing Males and Females, but the primary being the effect of the gender of the sample on the median and mean of gambling expenditures—in males, £14.25 (Median) and £29.78 (µ) per year and in females, £1.70 (Median) and £3.87 (µ) per year.
+
+``` {r checksummary}
+summary(gamb_female)
+summary(gamb_male)
+summary(teengamb)
+```
+
+
+This is a telling analysis as it is, but I propose using linear regression to identify the most significant variables to explore. We will use the `lm()` function to fit a simple  linear regression model, with `gamble` as the response and the four independent variables, `sex`, `status`, `income` and `verbal` as the predictors. The basic syntax is `lm(y ~ x, data)`, where `y` is the response, `x` is the predictor, and `data` is the data set in which these two variables are kept. 
+```{r runfit}
+fit_gamb <- lm(gamble ~ sex+status+income+verbal, data=teengamb)
+summary(fit_gamb)
+fit_gamb$coefficients
+```
+
+The results above showcase that `income` and `sex` are the two most significant independent variables as they have the least *_P_* values (*the probability of observing a greater absolute value of t under the null hypothesis*), with the former being the more significant independent variable to predict gambling expenditure. Now, I will examine both of these independent variable's effect visually on gambling expenditures. 
+
+The first variable I want to explore is: `sex` via the basic function ggplot().
+
+* The box plot shows the median level of expenditure on gambling of male is much higher than a female (*represented by the thick black line in each box*). Recall, the summary values told the same story. 
+
+
+* Further, the variability of expenditure on gambling of a male is much higher than the variability of the one of female (*represented by the length of the box*), with the outliers also being vastly far apart in the two genders of the sample.
+```{r plotofsexandgamb}
+ggplot(data=teengamb, mapping = aes(x = sex, y = gamble, fill=sex)) + 
+   geom_boxplot(alpha=0.3) +
+    theme(legend.position="none") + xlab("Sex") + ylab("Gambling Expenditure")
+```
+
+Next, we examine the weekly income of the sample and its impact on annual gambling expenditure. We show the distinction of the sex in the data points plotted to visualize what we observed above about gender through the summary() of the malegamb and femalegamb datasets.
+
+
+Based on our sample and this plot, we can see that females overall have lower annual gambling expenditures than males. Many of the extreme values or outliers are from males, with women on average, regardless of income, spending less than men on gambling expenditures. As per the observations from the histogram, we can see that the cluster of the sample data points are concentrated to the bottom left of the graph, showing the right skew when the dependent variable, `gamble`, is plotted. Visually, we can conclude that plotting a linear regression fit line will not accurately predict the outliers or the right-skewed cluster that we observe in this dataset. 
+
+```{r plotofincomeandgamb}
+ggplot(data=teengamb, aes(x = income, y = gamble, color=sex)) + 
+    geom_point() + 
+    labs(
+    title = "Relationship between Income and Gambling",
+    caption = "Source: teengamb dataset",
+    x = "Income (£/week)",
+    y = "Gambling Expenditure (£/annum)") + 
+    theme(plot.title = element_text(color = "#36454F", size = 14, face = "bold"))
+```
+
+
+Our endeavor to explain this data using income and sex as the two most significant variables proved to provide insights worth examining in this sample. The discernment gathered from separating the sample based on its one factor variable, `sex`, provided a closer look at other independent variables that may not have otherwise been observed if we overlooked the significance of this independent variable in conjunction to the others (independent variables) when observing gambling expenditures. 
+
+
+## Problem 2: uswages
+The dataset uswages is drawn as a sample from the Current Population Survey in 1988. You can download this data set by installing faraway library. To get the data set, copy and paste the r command: install.packages("faraway"); data(uswages, package="faraway"). (60 points, 10 points each)
+
+The wage is the response variable. Please see below for the full list of variables.
+
+
+wage: Real weekly wages in dollars (deflated by personal consumption expenditures - 1992 base year)
+
+educ:Years of education
+
+exper:Years of experience
+
+race:1 if Black, 0 if White (other races not in sample)
+
+smsa:1 if living in Standard Metropolitan Statistical Area, 0 if not
+
+ne:1 if living in the North East
+
+mw:1 if living in the Midwest
+
+we:1 if living in the West
+
+so:1 if living in the South
+
+pt:1 if working part time, 0 if not
+
+### Problem 2A
+__How many observations are in the data set?__
+
+There are 2000 observations of 10 variables (`wage`, `educ`, `expr`, `race`, `smsa`, `ne`, `mw`, `so`, `pt`).
+```{r installpackuswages}
+data(uswages, package="faraway")
+str(uswages)
+```
+### Problem 2B
+__Calculate the mean and median of each variable. Are there any outliers in the data set?__
+
+When we calculate the mean and median of each of the data elements, we extract the numerical summary below: 
+```{r summaryofwages}
+summary(uswages)
+```
+
+What is odd is that variable `exper` has a negative minimum value of -2.00. Executing a pull of the values of this variable results in the following. While it is permissible for a sample individual to have 0 years of work experience, we do not expect negative values of work experience to be applicable. This may be due to incorrect sampling, but we pursue the analysis knowing this __data quality constraint__ when building the regression model. 
+
+```{r uswagesidentifynegexper}
+head(sort(uswages$exper,decreasing=FALSE), n = 50)
+```
+
+
+In addition, there seem to be a handful of categorical variables (`race`, `smsa`, `pt`, `ne`, `mw`, `so`, `we`, `so`, `pt`) which have binary values ('Yes', 'No'; 'Black', White') for which a numerical summary is not ideal to depict understanding of these elements as the "mean" of a binary/factor is difficult to decipher, so I proceed to categorize them as factors to make them easier to decipher in our analysis. 
+
+```{r transformuswages}
+# Factor the categorical variables
+uswages$race <- factor(uswages$race)
+levels(uswages$race) <- c("White","Black")
+uswages$smsa <- factor(uswages$smsa)
+levels(uswages$smsa) <- c("No","Yes")
+uswages$pt <- factor(uswages$pt)
+levels(uswages$pt) <- c("No","Yes")
+uswages$ne <- factor(uswages$ne)
+levels(uswages$ne) <- c("No","Yes")
+uswages$mw <- factor(uswages$mw)
+levels(uswages$mw) <- c("No","Yes")
+uswages$we <- factor(uswages$we)
+levels(uswages$we) <- c("No","Yes")
+uswages$so <- factor(uswages$so)
+levels(uswages$so) <- c("No","Yes")
+uswages$pt <- factor(uswages$pt)
+levels(uswages$pt) <- c("No","Yes")
+```
+
+
+### Problem 2C
+__Calculate the correlation among wage,education and experience. Plot each of the predictors against the response variable. Identify the variables that are strongly correlated with the response variable.__
+
+To identify the _correlation among the three variables_: wage (_independent variable_), years of education and years of experience (_dependent variables_), we can use the `cor()` function. 
+
+
+We see from the results below that there is a higher correlation between wages and years of education (`r round(cor(uswages$wage, uswages$educ), 3)`) than there is between wages and years of experience (`r round(cor(uswages$wage, uswages$exper), 3)`). There is also a negative correlation between years of education and years of experience (`r `round(cor(uswages$educ, uswages$exper), 3)`).
+
+```{r performcorrelation}
+# Plot the correlation between the three variables mentioned
+round(cor(uswages$wage, uswages$educ), 3)
+round(cor(uswages$wage, uswages$exper), 3)
+round(cor(uswages$educ, uswages$exper), 3)
+```
+
+We plot the first relationship between __wage__ as the response variable and __education (in years)__ as the predictor variable. 
+
+
+The data shows with more years of education there is a gradual increase in wages, indicating a positive relationship that is depicted by the correlation coefficient of 
+`r round(cor(uswages$wage, uswages$educ), 3)`.
+
+```{r plotwageedu}
+ggplot(data=uswages, aes(x = educ, y = wage, color=race)) + 
+    geom_point() + 
+    labs(
+    title = "Relationship between Education and Wages",
+    caption = "Source: uswages dataset",
+    x = "Education (in years)",
+    y = "Weekly Wages") + 
+    theme(plot.title = element_text(color = "#36454F", size = 14, face = "bold"))
+```
+
+
+We plot the second relationship between __wage__ as the response variable and __experience (in years)__ as the predictor variable. 
+
+
+The data here is a bit hard to decode but reflects the understanding that most individuals earn the average salary for a given job for their entire career, with fewer individuals earning at the top range of the projected salary range for a given job. Years of experience appears __not__ to have significant impact on weekly wages given the limited variance of data points as experience in years increases. 
+
+```{r plotwageexper}
+ggplot(data=uswages, aes(x = exper, y = wage, color=race)) + 
+    geom_point() + 
+    labs(
+    title = "Relationship between Experience and Wages",
+    caption = "Source: uswages dataset",
+    x = "Experience (in years)",
+    y = "Weekly Wages") + 
+    theme(plot.title = element_text(color = "#36454F", size = 14, face = "bold"))
+```
+
+### Problem 2D
+__Is there difference in wages based on race?__
+
+There is a bias in the dataset with the sample consisting of 1,812 White race observations and 155 Black race observations (with no other races captured). The box plot below shows that there is a higher variability in the wages earned weekly by an individual of White race as opposed to an individual of Black race in this sample, as noted by the many outliers between the upper quartile and upper extreme of the 'White' sample box in comparison to the one outlier of the 'Black' sample box. 
+
+```{r plotwagerace}
+ggplot(data=uswages, mapping = aes(x = race, y = wage)) + 
+   geom_boxplot(alpha=0.5) +
+    theme(legend.position="none") + xlab("Race") + ylab("Weekly Wages")
+```
+
+However, when we disperse the sample into two distinct subsets on basis of  `race`, we see the vast differences clearly that are seen above in the box plot. What is interesting is that between the two subsets of the population, the µ of `educ` and `exper` is similar, however the range (min to max) of weekly wages exhibits a substantial disparity, with wages for 'White' race showing a much wider range compared to the other. 
+
+
+While we have a larger sample population in the 'White' subset, it is notable that this does not affect the proportion of the sample of each race's statistics on working part-time, with the majority of samples working full-time regardless of their race (White: Yes: 167, No: 1677; Black: Yes: 18, No: 138). 
+
+```{r race_dist}
+uswages_blk <- subset(uswages, race == "Black")
+uswages_wte <- subset(uswages, race == "White")
+summary (uswages_blk)
+summary (uswages_wte)
+```
+
+We examine whether living in a Standard Metropolitan Statistical Area further cements the differences we have seen in race. We see that the majority of the sample resides in the `smsa` area and this is where we see the outlier of wage(s) present. This corroborates the assumption most have that `smsa` areas being more desirable to find work in as there may be more opportunities in these area that pay more as opposed to other areas across the state.  
+```{r smsa_dist}
+uswages_smsa <- subset(uswages, smsa == "Yes")
+uswages_nonsmsa <- subset(uswages, smsa == "No")
+summary (uswages_smsa)
+summary (uswages_nonsmsa)
+```
+
+### Problem 2E
+__Build a regression model by using only education to predict the response variable. State the regression model.__
+
+Our linear model using _only_ education as the predictor accounts for 6.167% of the variation in the response of wages. From the model summary, we see that the fitted regression equation is: $$ Wages = 109.754 + 38.011 \times (X~i~) $$ 
+
+
+where _X~i~_ corresponds to the independent variable, _education_.
+
+
+* This informs that an additional year (or unit) of education is associated with an average increase in wages of $38.01 per week. The y-intercept of 109.75 gives us the average expected weekly income for an individual who has 0 years of education. 
+* The value of _P_, the probability of finding the given t statistic if the null hypothesis of no relationship were true, for education (< 2e-16) is significantly less than .05 so we can conclude that there is a statistically significant association between wages and education.
+* The _Residual Standard Error_, the average distance that the observed values fall from the regression line, is quite high (445.5 on 1998 df) indicating the regression line is *not* able to match the observed data. In this case, the average observed wage falls $445.50 away from the wage predicted by the regression line.
+* While __R^2^__ measures the strength of the relationship between our model and the dependent variable, wages, it is not a formal test for the relationship between wages and education. The _F-statistic_ is 131.3 which is a measure of how well the regression model fits the data compared to a model with no predictors (the null model). 
+  + The p-value < 2.2e-16 indicates the probability of observing an F-statistic as large as 131.3 (or larger) under the null hypothesis (i.e., no relationship between the independent and dependent variables) is extremely small. A p-value this small suggests strong evidence to reject the null hypothesis, meaning that the independent variable, education, in our model significantly explains the variation in the dependent variable, wages.
+```{r plotfitwageedu}
+fit_wage_edu <- lm(wage ~ educ, data=uswages)
+summary(fit_wage_edu)
+fit_wage_edu$coefficients
+
+
+ggplot(data=uswages, aes(x = educ, y = wage)) + 
+    geom_point() + 
+    labs(title = "Fitted Model of Relationship between Education and Wages",
+    caption = "Source: uswages dataset",
+    x = "Education (in years)",
+    y = "Weekly Wages") + 
+    theme(plot.title = element_text(color = "#36454F", size = 14, face = "bold")) + geom_smooth(color='red', method = "lm", se = FALSE)
+```
+
+### Problem 2F
+__Build a regression model by using only experience to predict the response variable. State the regression model.__
+
+Our linear model using _only_ experience as the predictor accounts for 3.356% of the variation in the response of wages. From the model summary, we see that the fitted regression equation is: $$ Wages = 492.1669 + 6.2981 \times (X~i~) $$
+
+
+where _X~i~_ corresponds to the independent variable, _experience_.
+
+* This informs that an additional year (or unit) of experience is associated with an increase in wages of $6.30 per week. The y-intercept of 492.17 gives us the average expected weekly income for an individual who has 0 years of experience. 
+* The value of _P_, the probability of finding the given t statistic if the null hypothesis of no relationship were true, for experience (<2e-16) is significantly less than .05 so we can conclude that there is a statistically significant positive association between wages and experience.
+* The _Residual Standard Error_, the average distance that the observed values fall from the regression line, is high (452.2 on 1998 df) indicating the regression line is *not* able to match the observed data well. In this case, the average observed wage falls $452.20 dollars away from the wage predicted by the regression line. 
+* While __R^2^__ measures the strength of the relationship between our model and the dependent variable, wages, it is not a formal test for the relationship between wages and experience. The _F-statistic_ is 69.39 which is a measure of how well the regression model fits the data compared to a model with no predictors (the null model). 
+  + The p-value < 2.2e-16 indicates the probability of observing an F-statistic as large as 69.39 (or larger) under the null hypothesis (i.e., no relationship between the independent and dependent variables) is extremely small. A p-value this small suggests strong evidence to reject the null hypothesis, meaning that the independent variable, experience, in our model significantly explains the variation in the dependent variable, wages.
+```{r plotfituswages}
+fit_wage_exper <- lm(wage ~ exper, data=uswages)
+summary(fit_wage_exper)
+fit_wage_exper$coefficients
+
+ggplot(data=uswages, aes(x = exper, y = wage)) + 
+    geom_point() + 
+    labs(title = "Fitted Model of Relationship between Experience and Wages",
+    caption = "Source: uswages dataset",
+    x = "Experience (in years)",
+    y = "Weekly Wages") + 
+    theme(plot.title = element_text(color = "#36454F", size = 14, face = "bold")) + geom_smooth(color='blue', method = "lm", se = FALSE)
+```

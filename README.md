@@ -6,6 +6,7 @@ This repository contains code and analysis performed for my DATA MODELING gradua
 
 	•	/code/: Contains R Markdown files (.rmd) used for various data modeling assignments and projects.
 	•	/output/: Contains the rendered PDF versions of the .rmd files for easy viewing of code and results.
+ 	•	/data/: Contains the data that was provided outside of the existing libraries mentioned in the .rmd files.
 
 ## Course Overview
 

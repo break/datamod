@@ -11,6 +11,7 @@ This repository contains code and analysis performed for my DATA MODELING gradua
 ## Course Overview
 
 The course focuses on:
+
 	•	Building and analyzing statistical models using R.
 	•	Applying techniques such as regression, ANOVA, and data visualization.
 	•	Understanding and interpreting model diagnostics and results.

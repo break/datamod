@@ -1,0 +1,436 @@
+---
+title: 'CSCI E-106:Assignment 7'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(faraway)
+  library(lattice)
+  library(caret)
+  library(ggfortify)
+  library(dplyr)
+  library(car)
+  library(gridExtra)
+  library(lmtest)
+  library(MASS)
+  library(GGally)
+  library(olsrr)
+  library(caret)
+  library(lmtest)
+  library(glmnet)
+})
+```
+
+## Problem 1 
+__Use the fat data(copy and paste the following command into R console:library(faraway);data(“fat”)), and use the percentage of body fat, siri, as the response and the other variables, except brozek and density as potential predictors. Use 70% of the data for train data set and use remaining data (30% of data) for test data set (use set.seed(1023)). (50 points)__
+
+```{r read_fat_data}
+data("fat")
+set.seed(1023)
+DataSplit<-createDataPartition(y = fat$siri, p = 0.7, list = FALSE)
+training_data <- fat[DataSplit,]
+testing_data <- fat[-DataSplit, ]
+```
+
+\textbf{a-)Linear regression with all predictors (5 pts)}\newline
+```{r full_mod_fat}
+# Fit Model
+full_fat_lm <- lm(siri~.-brozek -density, data=training_data)
+summary(full_fat_lm)
+# Calculate MSE - Training Data
+yhat.train <- predict(full_fat_lm, newdata = training_data)
+mse.lm <- mean((training_data$siri - yhat.train) ^ 2)
+mse.lm
+# Calculate MSPE - Testing Data
+yhat.test <- predict(full_fat_lm,newdata = testing_data, type="response")
+mspe.lm <- mean((testing_data$siri - yhat.test) ^ 2)
+mspe.lm
+```
+The model’s performance on the training data appears robust: several predictor variables are significant, the residual standard error (RSE) is low, residuals are within a tight range, and both the _(Adjusted and Non-Adjusted)_ $R^2$ values are high. However, it’s important to examine both in-sample and out-of-sample errors for a fuller picture. Mean squared error (MSE) measures the average squared difference between observed training responses and model-fitted responses, helping to evaluate how well our model fits the training data. Here, the MSE of `r mse.lm` suggests a good fit on the training data, as lower MSE values indicate a model that closely captures observed data patterns. Mean squared prediction error (MSPE), in contrast, assesses prediction quality by averaging the squared differences between predicted values and actual test values. A higher MSPE (`r mspe.lm`) than MSE indicates that the model does not generalize as well on new data as it does on the training data. This gap may signal some overfitting on the training data, where the model captures noise instead of the true pattern. It could also reflect variability in the test set that wasn’t as prominent in the training set, leading to increased MSPE.
+
+\textbf{b-)Linear regression with variables selected using stepwise (both ways) selection criteria (5 pts)}\newline
+
+```{r fat_step_both_ways}
+stp_wse_fat <- ols_step_both_p(full_fat_lm) # Remove details = TRUE now that we identified the Model 3 parameters
+stp_wse_fat
+plot(stp_wse_fat)
+stp_wse_fat_lm <- lm(siri ~ abdom + free + weight, data=training_data) # Extract model # 3 siri ~ abdom + free + weight
+summary(stp_wse_fat_lm)
+```
+The plots showing R-squared, AIC, Adjusted R-squared, and Root Mean Squared Error (RMSE) in the stepwise model results provide insights into the model selection process and how model fit and complexity evolve as predictors are added or removed.\newline
+1. __R-Square__: This plot tracks the proportion of variance in the response variable explained by the model as predictors are added or removed. An _increasing R-square_ indicates that adding variables improves the model’s fit to the data; however, it always increases or stays the same when more predictors are added, so a high R-squared alone doesn’t mean the model is optimal—it may be overfitting, so we move on to the next graph.\newline
+2. __Akaike Information Criteria (AIC)__: This plot evaluates model quality based on both fit and complexity, penalizing for added predictors to avoid overfitting. A lower AIC indicates a better model balance between fit and simplicity. Our goal in stepwise is to find the model with the lowest AIC. A drop in AIC suggests that the added predictors improve model quality, while a rise indicates that additional predictors may not be useful and could lead to overfitting. \newline
+3. __Adjusted R-Square__: This plot adjusts _R-Square_ for the number of predictors, penalizing the addition of unnecessary predictors. A rising adjusted r-square indicates that added variables improve the model’s explanatory power after accounting for complexity. On the other hand, a peak or plateau, where adding more predictors does not improve Adjusted R-squared. This point can indicate an optimal model balance. \newline
+4. __Root Mean Squared Error__: This plot assesses model accuracy by measuring the average prediction error in units of the response variable. A lower RMSE indicates better predictive accuracy. If RMSE starts to stabilize or increase as predictors are added, it may signal overfitting, as additional predictors don’t reduce error meaningfully. \newline
+
+From what the graphs denote, we can assume the __third__ model (using details=TRUE parameter, we identify it to be `siri ~ abdom + free + weight`) that is fitted will be the best, as it minimizes AIC and RMSE, while being the peak of both Adjusted and non-adjusted $R^2$. Upon fitting the model with these parameters, we can see the comparison between the full model and the stepwise both model: 
+<br>      
+<table>
+<caption><span id="tab:table1">Table 1.1: </span>Full Model vs Stepwise Both Model on Training Data</caption>
+
+Variable                  Full Model                      Stepwise Both Model
+-------------             ----------------------         ------------------
+Residuals - Min           -4.8292                         -5.6862
+Residuals - Max           6.7490                          8.1218
+RSE                       1.399                           1.526
+df                        162                             174
+Adj. $R^2$                0.9732                          0.9681
+</table>
+
+Though the residuals’ spread, RSE, and adjusted $R^2$ are slightly stronger in the full model, the stepwise-selected model achieves nearly the same performance as the full model using only a fraction of the variables, all of which are statistically significant.
+
+\textbf{c-)Ridge regression (does not drop any varaibles) (5 pts)}\newline
+
+```{r fat_ridge_reg}
+vif(full_fat_lm)
+x <- model.matrix(siri~.-brozek -density, training_data)[,-c(1)]
+y <- training_data$siri
+RidgeMod <- glmnet(x, y, alpha=0, nlambda=100,lambda.min.ratio=0.0001)
+# Extract Best Lambda => Perform k-fold cross-validation to find optimal lambda value
+CvRidgeMod <- cv.glmnet(x, y, alpha=0, nlambda=100,lambda.min.ratio=0.0001)
+# Produce plot of test MSE by lambda value
+par(mfrow=c(1,1))
+plot(CvRidgeMod)
+# Find optimal lambda value that minimizes test MSE
+best.lambda.ridge <- CvRidgeMod$lambda.min
+best.lambda.ridge 
+predict(RidgeMod, s=best.lambda.ridge, type="coefficients")[1:4, ]
+# Use Ridge Trace Plot
+plot(RidgeMod, xvar = "lambda")
+# Build best version proposed by ridge model
+best_ridge_mod <- glmnet(x, y, alpha = 0, lambda = best.lambda.ridge)
+coef(best_ridge_mod)
+# Calculate R^2
+y_predicted <- predict(RidgeMod, s = best.lambda.ridge, newx = x)
+
+#find SST and SSE
+sst <- sum((y - mean(y))^2)
+sse <- sum((y_predicted - y)^2)
+
+#find R-Squared
+rsq <- 1 - sse/sst
+rsq
+
+# Extract and compare coefficients
+ols_coeff <- coef(full_fat_lm)[-1]  # Removing intercept
+ridge_coeff <- as.vector(predict(best_ridge_mod, type = "coefficients"))[-1]  # Ridge without intercept
+coef_comparison <- data.frame(OLS = ols_coeff, Ridge = ridge_coeff)
+print(coef_comparison)
+```
+
+Executing `vif()` on the full model, we observe `weight`, `abdom`, `adipos`, `hip` and `chest` as all having VIF values greater than 10, which suggests multicollinearity is present. First, we define our data in terms of the response variable as `y` and all the independent variable(s) as `x` (we exclude the variables mentioned). Then we use the `glmnet()` package to fit ridge regression model on the fat data set. Next, we identify the lambda value that produces the lowest test mean squared error (MSE) by using k-fold cross-validation using function `cv.glmnet()`. The lambda value that minimizes the test MSE turns out to be `r best.lambda.ridge`. Lastly, we can analyze the final model produced by the optimal lambda value. There is a reduction in R-Squared (0.93 from 0.97 in the full OLS model).
+
+__The Plots__
+The plot of `CvRidgeMod` visually identifies the optimal $\lambda$ for Ridge regression based on cross-validation, allowing you to select a regularization strength that balances error minimization and model simplicity. 
+
+* $\lambda_{\text{min}}$: The point where the cross-validated error is minimized. This value provides the optimal $\lambda$ for prediction performance based on cross-validation.
+* $\lambda_{\text{1se}}$: The largest $\lambda$  within one standard error of the minimum error. This value provides a more parsimonious model with slightly stronger regularization, often preferred for simpler models with lower variance.
+
+By identifying $\lambda_{\text{min}}$ and $\lambda_{\text{1se}}$, the plot helps balance the model’s predictive accuracy with simplicity. Choosing $\lambda_{\text{1se}}$ sacrifices minimal accuracy for greater regularization, while $\lambda_{\text{min}}$ emphasizes accuracy.
+
+The plot of `RidgeMod` provides a visual of how each predictor’s influence changes with regularization strength ($\lambda$), highlighting Ridge’s approach to managing overfitting by shrinking coefficients continuously without discarding predictors entirely. Moving from left to right on the plot, the penalty increases, and coefficients decrease in magnitude.
+
+\textbf{d-)Lasso (similar to variable selection) (5 pts)}\newline
+
+```{r lasso_fat_mod}
+LassoMod <- glmnet(x, y, alpha=1, nlambda=100,lambda.min.ratio=0.0001)
+plot(LassoMod,xvar="norm",label=TRUE)
+CvLassoMod <- cv.glmnet(x, y, alpha=1, nlambda=100,lambda.min.ratio=0.0001)
+plot(CvLassoMod)
+best.lambda.lasso <- CvLassoMod$lambda.min
+best.lambda.lasso
+coef(CvLassoMod, s = "lambda.min")
+```
+
+\textbf{e-)Elastic Net (5 pts)}\newline
+
+```{r elst_net_fat_mod}
+EnetMod <- glmnet(x, y, alpha=0.5, nlambda=100,lambda.min.ratio=0.0001)
+CvElasticnetMod <- cv.glmnet(x, y,alpha=0.5,nlambda=100,lambda.min.ratio=0.0001)
+best.lambda.enet <- CvElasticnetMod$lambda.min
+coefficients(EnetMod,s=best.lambda.enet)
+```
+
+\textbf{f-)Robust Regression (5 pts)}\newline
+
+```{r robust_reg_fat_train_mod}
+RobRegMod <- rlm(siri~.-brozek -density, data=training_data)
+par(mfrow=c(2,2))
+plot(RobRegMod)
+summary(RobRegMod)
+```
+
+```{r prob_1_comp_contrst}
+y_hat.ridge <- predict(RidgeMod, s = best.lambda.ridge, newx = x)
+y_hat.lasso <- predict(LassoMod, s = best.lambda.lasso, newx = x)
+y_hat.enet <- predict(CvElasticnetMod , s = best.lambda.enet, newx = x)
+y_hat.robreg <- predict(RobRegMod, newdata = training_data)
+
+sst <- sum((y - mean(y))^2)
+sse.ols<-sum(full_fat_lm$residuals^2)
+sse.ridge <- sum((y-y_hat.ridge)^2)
+sse.lasso <- sum((y-y_hat.lasso)^2)
+sse.enet <- sum((y-y_hat.enet)^2)
+sse.robreg <- sum((y-y_hat.robreg)^2)
+
+cbind(sse.ols,sse.ridge,sse.lasso,sse.enet, sse.robreg)
+# R squared
+rsq.ols<-1 - sse.ols / sst
+rsq.ridge <- 1 - sse.ridge / sst
+rsq.lasso <- 1 - sse.lasso / sst
+rsq.enet  <- 1 - sse.enet  / sst
+rsq.robreg <- 1 - sse.robreg / sst
+cbind(rsq.ols,rsq.ridge,rsq.lasso,rsq.enet, rsq.robreg)
+```
+We dive into the metrics calculated among Ordinary Least Squares, Ridge, Lasso, Elastic Net and Robust Regression on the training data: \newline
+\textbf{OLS (Ordinary Least Squares):}
+
+* SSE (316.9164): The lowest SSE among the models, indicating the closest fit to the training data but potential overfitting, as OLS lacks regularization. \newline
+*	$R^2$ (0.975508): This high $R^2$ suggesting strong pattern capture, though it may generalize poorly if noise or multicollinearity is present. \newline
+
+\textbf{Ridge Regression:}
+
+*	SSE (848.3355): Indicates a looser fit than OLS due to the L2 penalty, which reduces multicollinearity but sacrifices some fit to enhance generalizability. \newline
+* $R^2$ (0.9344387): High at 93.4%, capturing most variance while introducing stability against overfitting.\newline
+
+\textbf{Lasso Regression:}
+
+* SSE (436.3745): Better than Ridge and Elastic Net by a long shot, achieving a balanced fit with effective regularization. \newline
+* $R^2$ (0.966276): Outperforming Ridge and Elastic Net in fit, while the L1 penalty shrinks some coefficients to zero, enhancing simplicity and interpretability.\newline
+
+\textbf{Elastic Net:}
+
+* SSE (716.182): intermediate between Ridge and Lasso, balancing fit and regularization. \newline
+*	$R^2$ (0.9446518): Slightly higher than Ridge, showing Elastic Net’s combined L1 and L2 penalties capture variance and manage overfitting moderately well.. \newline
+
+\textbf{Robust Regression:}
+
+* SSE (336.8533): Second only to OLS, indicating a close fit to the data with resistance to outliers. \newline
+*	$R^2$ (0.9739672): Nearly as high as OLS, suggesting Robust Regression captures variance effectively while controlling for outliers and overfitting risks. \newline
+
+OLS shows the closest fit to training data but risks overfitting, while Ridge, Lasso, and Elastic Net add regularization, with Lasso achieving the best balance between fit and simplicity. Robust Regression offers near-OLS fit while managing outliers, providing a stable alternative for noisy data.
+
+\textbf{g-)Use the models you find to predict the response in the test sample. Make a report on the performances of the models. (20 pts)}\newline
+
+```{r robust_reg_fat_test_mod}
+# Create the model matrix for testing data
+x_test <- model.matrix(siri ~ . - brozek - density, testing_data)[, -c(1)]
+y_test <- testing_data$siri
+
+# Make predictions on the testing data
+y_hat.ridge.test <- predict(RidgeMod, s = best.lambda.ridge, newx = x_test)
+y_hat.lasso.test <- predict(LassoMod, s = best.lambda.lasso, newx = x_test)
+y_hat.enet.test <- predict(CvElasticnetMod, s = best.lambda.enet, newx = x_test)
+y_hat.ols.test <- predict(full_fat_lm, newdata = testing_data)
+y_hat.robreg.test <- predict(RobRegMod, newdata = testing_data)
+
+# Calculate SSE for testing data
+sse.ols.test <- sum((y_test - y_hat.ols.test)^2)
+sse.ridge.test <- sum((y_test - y_hat.ridge.test)^2)
+sse.lasso.test <- sum((y_test - y_hat.lasso.test)^2)
+sse.enet.test <- sum((y_test - y_hat.enet.test)^2)
+sse.robreg.test <- sum((y_test - y_hat.robreg.test)^2)
+cbind(sse.ols.test, sse.ridge.test, sse.lasso.test, sse.enet.test, sse.robreg.test)
+
+# Total Sum of Squares (SST) for testing data
+sst.test <- sum((y_test - mean(y_test))^2)
+
+# Calculate R-squared for testing data
+rsq.ols.test <- 1 - sse.ols.test / sst.test
+rsq.ridge.test <- 1 - sse.ridge.test / sst.test
+rsq.lasso.test <- 1 - sse.lasso.test / sst.test
+rsq.enet.test <- 1 - sse.enet.test / sst.test
+rsq.robreg.test <- 1 - sse.robreg.test / sst.test
+cbind(rsq.ols.test, rsq.ridge.test, rsq.lasso.test, rsq.enet.test, rsq.robreg.test)
+```
+OLS achieves the lowest SSE (310.10) and highest $R^2$ (0.933), indicating the best fit but potential overfitting. Robust Regression closely follows with a low SSE (328.70) and high $R^2$ (0.929), showing strong performance while handling outliers. Lasso strikes a balance between fit and simplicity (SSE: 387.90, $R^2$: 0.916), outperforming Elastic Net (SSE: 520.39, $R^2$: 0.888) and Ridge (SSE: 587.24, $R^2$: 0.873) on both metrics by introducing effective regularization.
+
+## Problem 2
+
+\textbf{Use the fat data set in previous example by using the percentage of body fat, siri, as the response and the other variables, except brozek and density as potential predictors.(25 points)}
+
+\textbf{a-)Fit the same model in question 1-a but now using Huber's robust method. Comment on any substantial differences between this model and the least squares fit. (10 points)}{}
+
+The Huber method is less sensitive to outliers compared to ordinary least squares (OLS), making it useful for datasets that may contain some extreme values.
+
+```{r lmod_huber_fat}
+full_fat_huber <- rlm(siri ~ . - brozek - density, data = fat, psi = psi.huber) # As recommended by TAs during OH and TA, we use the FULL data as opposed to the training dataset from Problem 1 OLS model. 
+coef_ols <- coef(full_fat_lm)
+coef_huber <- coef(full_fat_huber)
+cbind(coef_ols, coef_huber)
+par(mfrow = c(1, 2))
+plot(residuals(full_fat_lm), main = "OLS Residuals")
+plot(residuals(full_fat_huber), main = "Huber Residuals")
+```
+
+When examining the coefficients of the models side by side, we see that the Huber model shows smaller coefficients for variables that are influenced by outliers in the OLS model (e.g., `age`, `biceps`, `wrist`) and showcases a tighter fit of residuals around zero, indicating that predictions are close to the observed values, with little systematic error. __Caveat: We did build the Huber model with the full data of `fat` as recommended by the TAs; however, to get a precise comparison we would need to build the Huber model on the training data__. 
+
+\textbf{b-)Identify which two cases have the lowest weights in the Huber fit. What is unusual about these two points? (5 points)}
+
+```{r hub_weights_fat_mod}
+weights <- full_fat_huber$w
+lowest_weight_indices <- order(weights)[1:2]
+lowest_weights <- weights[lowest_weight_indices] 
+lowest_cases <- fat[lowest_weight_indices, ]
+lowest_cases_with_weights <- cbind(lowest_cases, weight = lowest_weights)
+print(lowest_cases_with_weights)
+```
+Observations 39 and 221 exhibit the lowest weights in the Huber fit. Notably, these observations are positioned at both the high and low ends of the response variable `siri` ($\mu$ = 19.15) and predictor variable `brozek` ($\mu$ = 18.94). However, they do not show extreme values for any other variable in the dataset, as indicated by the means of each data element provided below. In fact, the values of the remaining predictor variables for these observations remain close to their respective means, suggesting that their outlier status is primarily driven by their values of `siri` and `brozek` rather than significant deviations in other predictors.
+
+| Variable | Mean    |
+|----------|---------|
+| brozek   | 18.94   |
+| siri     | 19.15   |
+| density  | 1.056   |
+| age      | 44.88   |
+| weight   | 178.9   |
+| height   | 70.15   |
+| adipos   | 25.44   |
+| free     | 143.7   |
+| neck     | 37.99   |
+| chest    | 100.82  |
+| abdom    | 92.56   |
+| hip      | 99.9    |
+| thigh    | 59.41   |
+| knee     | 38.59   |
+| ankle    | 23.1    |
+| biceps   | 32.27   |
+| forearm  | 28.66   |
+| wrist    | 18.23   |
+
+\textbf{c-)Plot weight (of the man) against height. Identify the two outlying cases. Are these the same as those identified in the previous question? Discuss.(10 points)}
+
+```{r plot_data}
+# Plot height vs weight
+plot(fat$height, fat$weight, 
+     xlab = "Height", 
+     ylab = "Weight", 
+     main = "Scatter Plot of Weight vs Height")
+
+min_height_index <- which(fat$height == min(fat$height))
+max_height_index <- which(fat$height == max(fat$height))
+max_weight_index <- which(fat$weight == max(fat$weight))
+min_weight_index <- which(fat$weight == min(fat$weight))
+
+# Highlight point with minimum height
+points(fat$height[min_height_index], fat$weight[min_height_index], 
+       col = "red", pch = 19, cex = 1.5)
+text(fat$height[min_height_index], fat$weight[min_height_index], 
+     labels = min_height_index, pos = 3, col = "red")
+# Highlight point with maximum height
+points(fat$height[max_height_index], fat$weight[max_height_index], 
+       col = "purple", pch = 19, cex = 1.5)
+text(fat$height[max_height_index], fat$weight[max_height_index], 
+     labels = max_height_index, pos = 3, col = "purple")
+# Highlight point with maximum weight
+points(fat$height[max_weight_index], fat$weight[max_weight_index], 
+       col = "darkblue", pch = 19, cex = 1.5)
+text(fat$height[max_weight_index], fat$weight[max_weight_index], 
+     labels = max_weight_index, pos = 4, col = "darkblue")
+# Highlight point with minimum weight
+points(fat$height[min_weight_index], fat$weight[min_weight_index], 
+       col = "darkgreen", pch = 19, cex = 1.5)
+text(fat$height[min_weight_index], fat$weight[min_weight_index], 
+     labels = min_weight_index, pos = 4, col = "darkgreen")
+
+legend("topleft", legend = c("Min Height", "Max Height", "Max Weight", "Min Weight"), 
+       col = c("red", "purple", "darkblue", "darkgreen"), pch = 19)
+```
+
+Our plot identifies several outliers, with observations 42 and 39 as primary outliers, and 96 and 182 as milder ones. The Huber analysis downweighted observations 39 and 221 due to their extreme response values for siri ($\mu$ = 19.15) and `brozek` ($\mu$ = 18.94), placing them at the high and low ends of the distribution. Not all outliers are downweighted; only those exceeding a specific deviation threshold relative to the mean squared error are affected. In the Height and Weight plot, only observation 39, with the lowest Huber weight, appears as a clear outlier, likely because other variables influencing observation 221’s status are not included in the plot.
+
+## Problem 3
+
+\textbf{Using the stackloss data (copy and paste the following command into R console:library(faraway);data(“stackloss”)), fit a model with stack.loss as the response and the other three variables as predictors using the following methods: (25 Points)}
+
+```{r stackloss_load}
+data("stackloss")
+```
+
+\textbf{a-) Least squares (5 points)}\newline
+```{r stackloss_ols}
+stklss.lmod <- lm(stack.loss ~ ., data=stackloss)
+summary(stklss.lmod)
+
+plot(fitted(stklss.lmod),residuals(stklss.lmod),xlab="Fitted",ylab="Residuals")
+abline(h=0)
+```
+
+\textbf{b-) Huber robust regression method (5 points)}\newline
+```{r stackloss_hub}
+stklss.lmod.hub <- rlm(stack.loss ~ ., data=stackloss, psi = psi.huber)
+summary(stklss.lmod.hub)
+
+stklss.weights <- stklss.lmod.hub$w
+names(stklss.weights) <- row.names(stackloss)
+head(sort(stklss.weights),10)
+```
+
+\textbf{c-) Bisquare robust regression method (5 points)}\newline
+```{r stackloss_bisq}
+stklss.lmod.bisq <- rlm(stack.loss ~ ., data=stackloss, psi = psi.bisquare)
+summary(stklss.lmod.bisq)
+```
+
+\textbf{d-) Compare the results. Now use diagnostic methods to detect any outliers or influential points. Remove these points and then use least squares. Compare the results. (10 points)}\newline
+
+```{r comp_contrst}
+summary_ols <- summary(stklss.lmod)
+summary_huber <- summary(stklss.lmod.hub)
+summary_bisquare <- summary(stklss.lmod.bisq)
+
+# Compare coefficients
+coef_stklss_ols <- coef(stklss.lmod)
+coef_stklss_huber <- coef(stklss.lmod.hub)
+coef_stklss_bisq <- coef(stklss.lmod.bisq)
+cbind(coef_ols, coef_stklss_huber, coef_stklss_bisq)
+
+# Compare residuals
+par(mfrow = c(1, 3))
+plot(residuals(stklss.lmod), main = "OLS Residuals")
+plot(residuals(stklss.lmod.hub), main = "Huber Residuals")
+plot(residuals(stklss.lmod.bisq), main = "BiSquare Residuals")
+
+# Compare Residual Standard Errors
+cat("OLS Residual Standard Error:", summary_ols$sigma, "\n")
+cat("Huber Residual Standard Error:", summary_huber$sigma, "\n")
+cat("Bisquare Residual Standard Error:", summary_bisquare$sigma, "\n")
+```
+
+As a preliminary analysis, we examine the coefficients, residuals and RSEs for all three versions of the model. First, we notice an increase in all coefficient values for the Huber and BiSquare Models from the OLS Model. In addition, the significance of the two predictor variables, Air Flow and Water Temp is not upheld in the Huber and BiSqare Models despite a reduction in the standard errors for all three predictor variables (offset by the increase in coefficients). Yet, the Residual Standard Error is reduced in both Huber and BiSquare, with the latter reducing it to its lowest at 2.28 (OLS: 3.24, Huber: 2.44). 
+
+__Outlier and Influential Points__
+
+```{r stklss_outlier_analysis}
+ols_plot_resid_stud_fit(stklss.lmod)
+
+std_residuals <- rstudent(stklss.lmod)
+outlier_indices <- which(abs(std_residuals) > 2)
+outlier_indices <- unique(outlier_indices)
+print(outlier_indices)
+stklss_data_wo_outliers <- stackloss[-outlier_indices, ]
+stklss.lmod.wo.outliers <- lm(stack.loss ~ ., data = stklss_data_wo_outliers)
+summary(stklss.lmod.wo.outliers)
+lmod.wo.outliers <- summary(stklss.lmod.wo.outliers)
+```
+
+```{r plotcooks_calc_comp}
+ols_plot_cooksd_chart(stklss.lmod)
+
+cooks_threshold <- 0.19 # As identified from graph above
+cooks_distances <- cooks.distance(stklss.lmod)
+high_influence_points <- which(cooks_distances > cooks_threshold)
+cat("High influence points (Cook's Distance >", cooks_threshold,"): ",high_influence_points, "\n")
+
+cat("OLS Residual Standard Error:", summary_ols$sigma, "\n")
+cat("OLS R-Squared:", summary_ols$r.squared, "\n")
+cat("OLS Residual Standard Error without Outliers/Influentials:", lmod.wo.outliers$sigma, "\n")
+cat("OLS w.o Outliers R-Squared:", lmod.wo.outliers$r.squared, "\n")
+```
+The search for potential outliers and influential points led us to two indices (4, 21) that were found to be either a potential outlier (4, 21), influential point (21), or both (21). Upon removing these points, we notice an improvement in the model performance when building an OLS model, specifically in the reduction of the Residual Standard Error (1.20 in model without outliers and 3.24 in model with outliers), an increase in $R^2$ (0.91 in original model to 0.97 in the model without outliers), and a tighter clustering of residuals. On the other hand, we lose the significance of predictor variable, Water.Temp, in the model without outliers (Pr(>|t|) $\approx$ 0.002 in original model, 0.05 in model without outliers).

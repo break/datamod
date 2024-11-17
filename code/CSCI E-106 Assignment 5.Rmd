@@ -1,0 +1,527 @@
+---
+title: 'CSCI E-106:Assignment 5'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+
+\textbf{Refer to Sales growth Data. (30 points, 10 points each)}
+
+```{r read_data}
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(faraway)
+  library(lattice)
+  library(caret)
+  library(ggfortify)
+  library(dplyr)
+  library(car)
+  library(gridExtra)
+  library(lmtest)
+  library(MASS)
+})
+sls_gwth_data <- read.csv('/Users/shreyabajpai/CSCI E-106 - Data Modeling/CSCI E-106 Assignment 5/Sales Growth Data (1).csv')
+X <- sls_gwth_data$X
+Y <- sls_gwth_data$Y
+```
+
+\textbf{a-) Divide the range of the predictor variable (coded years) into five bands of width 2.0, as follows: Band 1 ranges from X = -.5 to X = 1.5; band 2 ranges from X = 1.5 to X = 3.5; and so on. Determine the median value of X and the median value of Y in each band and develop the band smooth by connecting the five pairs of medians by straight lines on a scatter plot of the data. Does the band smooth suggest that the regression relation is linear? Discuss.}
+
+```{r band_disp}
+# Create bands
+sd.b1 <- dplyr::filter(sls_gwth_data, -.5<X, X<1.5)
+sd.b2 <- dplyr::filter(sls_gwth_data, 1.5<X, X<3.5)
+sd.b3 <- dplyr::filter(sls_gwth_data, 3.5<X, X<5.5)
+sd.b4 <- dplyr::filter(sls_gwth_data, 5.5<X, X<7.5)
+sd.b5 <- dplyr::filter(sls_gwth_data, 7.5<X, X<9.5)
+
+# Find median X and Y of each band
+bands <- data.frame(
+  Median.X = c(median(sd.b1$X),median(sd.b2$X),median(sd.b3$X),median(sd.b4$X),median(sd.b5$X)),
+  Median.Y = c(median(sd.b1$Y),median(sd.b2$Y),median(sd.b3$Y),median(sd.b4$Y),median(sd.b5$Y)),
+  row.names = c('b1', 'b2','b3', 'b4', 'b5')
+  )
+
+ggplot() +
+  geom_point(data = sls_gwth_data, aes(x = X, y = Y), color = "blue") + 
+  geom_line(data = bands, aes(x = Median.X, y = Median.Y), color = "red", linewidth = 1) +  
+  geom_point(data = bands, aes(x = Median.X, y = Median.Y), color = "red", size = 3) +
+  labs(title = "Scatter Plot with Band Medians",
+       x = "X (Years)",
+       y = "Y (Sales Growth)") +
+  theme_minimal()
+```
+
+Median smoothing is a form of non-parametric regression that attempts to reduce noise in the data by summarizing the central tendency of Y within bands of X. The median smoothing we performed suggests a mostly linear relationship; however, the last few years of data indicates a more curvilinear pattern.
+
+\textbf{b-) Create a series of seven overlapping neighborhoods of width 3.0 beginning at X = -.5. The first neighborhood will range from X = -.5 to X = 2.5; the second neighborhood will range from X = .5 to X = 3.5; and so on. For each of the seven overlapping neighborhoods, fit a linear regression function and obtain the fitted value $\hat{Y_{c}}$ at the center $X_{c}$ of the neighborhood. Develop a simplified version of the lowess smooth by connecting the seven ($X_c$, $\hat{Y_{c}}$) pairs by straight lines on a scatter plot of the data.}
+
+```{r seven_neighbors}
+# Create bands
+sdb.b1 <- dplyr::filter(sls_gwth_data, -0.5<X, X<2.5)
+sdb.b2 <- dplyr::filter(sls_gwth_data, 0.5<X, X<3.5)
+sdb.b3 <- dplyr::filter(sls_gwth_data, 1.5<X, X<4.5)
+sdb.b4 <- dplyr::filter(sls_gwth_data, 2.5<X, X<5.5)
+sdb.b5 <- dplyr::filter(sls_gwth_data, 3.5<X, X<6.5)
+sdb.b6 <- dplyr::filter(sls_gwth_data, 4.5<X, X<7.5)
+sdb.b7 <- dplyr::filter(sls_gwth_data, 5.5<X, X<8.5)
+
+# Find yhat for each neighborhood
+yhatb1 <- predict(lm(Y~X,sdb.b1), data.frame(X=1))
+yhatb2 <- predict(lm(Y~X,sdb.b2), data.frame(X=2))
+yhatb3 <- predict(lm(Y~X,sdb.b3), data.frame(X=3))
+yhatb4 <- predict(lm(Y~X,sdb.b4), data.frame(X=4))
+yhatb5 <- predict(lm(Y~X,sdb.b5), data.frame(X=5))
+yhatb6 <- predict(lm(Y~X,sdb.b6), data.frame(X=6))
+yhatb7 <- predict(lm(Y~X,sdb.b7), data.frame(X=7))
+
+# Find Median X and Y of each band
+simple.loess <- data.frame(
+  X_c = c(1,2,3,4,5,6,7),
+  Y_c = c(yhatb1,yhatb2,yhatb3,yhatb4,yhatb5,yhatb6,yhatb7),
+  row.names = c('b1', 'b2','b3', 'b4', 'b5', 'b6', 'b7')
+)
+
+ggplot(simple.loess, aes(x = X_c, y = Y_c)) +
+  geom_point(size = 3, color = "blue") +                      
+  geom_line(data = simple.loess, color = "black", linewidth = 1) +     
+  labs(title = "Simplified Lowess Smooth Curve",
+       x = "X (Neighborhood Centers)",
+       y = "Y (Fitted Values)") +
+  theme_minimal()
+```
+
+\textbf{c-) Obtain the 95 percent confidence band for the true regression line and plot it on the plot prepared in part (b). Does the simplified lowess smooth fall entirely within the confidence band for the regression line? What does this tell you about the appropriateness of the linear regression function?}
+
+```{r conf_band}
+# Fit linear model
+sls_grwth_lm <- lm (Y ~ X)
+
+# Extract predicted values with confidence intervals
+predicted_values <- predict(sls_grwth_lm, interval = 'confidence', level = 0.95)
+
+# Extract data into a data frame
+pred_df <- data.frame(
+  X = sls_gwth_data$X,
+  fit = predicted_values[, "fit"],
+  lwr = predicted_values[, "lwr"],
+  upr = predicted_values[, "upr"]
+)
+
+# Fit LOWESS model
+simple_loess <- loess(Y ~ X, data = sls_gwth_data)
+loess_pred <- predict(simple_loess)
+
+# Add LOWESS smoothed points to the data
+sls_gwth_data$loess_Y <- loess_pred
+
+ggplot(sls_gwth_data, aes(x = X, y = Y)) +
+  geom_point(color = "hotpink", size = 2) + # Scatter plot for the original data
+  geom_ribbon(data = pred_df, aes(ymin = lwr, ymax = upr), fill = "lightblue", alpha = 0.3) + # Confidence interval ribbon from linear model predictions
+  geom_line(data = pred_df, aes(y = fit), color = "#e31a1c", linewidth = 1.2) + # Linear model fit line
+  geom_line(aes(y = loess_Y), color = "black", linewidth = 1.2) + # LOEWSS smoothed line (connect the segments)
+  geom_point(aes(y = loess_Y), color = "blue", size = 2) + # Points going through the LOESS curve
+  labs(
+    title = "Sales Growth Over Time",
+    subtitle = "Linear Regression with 95% Confidence Band and Lowess Smoothing",
+    x = "X (Years)",
+    y = "Y (Sales Growth)"
+  ) +
+  theme_minimal()
+```
+
+Most of the Simplified Lowess Smooth lies within the confidence band of the overall regression line. When both the linear regression line and the Lowess smooth curve are contained within this band, it indicates a strong fit of the linear model to the data. This supports the assumption of linearity, as the Lowess curve shows minimal deviations from the linear model. Consequently, there is little evidence of non-linearity, suggesting any observed deviations are negligible. The confidence band reflects uncertainty around the regression, and both curves residing within it reinforces the reliability of the model’s predictions and its ability to capture the primary trend in the data.
+
+## Problem 2
+
+\textbf{Using the ozone data under faraway library,data(ozone,package="faraway"). Use O3 as the response and temp, humidity and ibh as predictors to answer the questions below. (50 points)}
+
+__a-) Create train and test data sets. Use 70% of the data for train data set and use remaining data (30% of data) for test data set (use set.seed(1023)). (5 points)}__
+```{r ozone_data_load}
+ozone_data <- as.data.frame(ozone)
+
+set.seed(1023) 
+
+DataSplit<-createDataPartition(y = ozone_data$O3, p = 0.7, list = FALSE)
+
+ozone_train <- ozone_data[DataSplit,]
+ozone_test <-ozone_data[-DataSplit,]
+```
+
+__b-) Build a regression model to predict O3 on the train data set. Write down the regression model and comment on the model performance. (5 points)__
+
+```{r ozone_trn_lm}
+oz_trn_lm <- lm(O3 ~ temp + humidity + ibh, data=ozone_train)
+summary(oz_trn_lm)
+```
+
+The regression model is: $\hat{O3} = -10.90 + 0.3324 \times temp + 0.07667 \times humidity -0.0009648 \times ibh$. 
+
+Th intercept $-10.90$ indicates that when temp, humidity, and ibh are all zero, the predicted value of O3 is -10.90. The coefficients of the predictors are summarized by the following:\newline 
+
+1. For each one-unit increase in __temp__, O3 is predicted to increase by 0.3324 units, assuming other variables (humidity and ibh) are held constant.
+
+2. For each one-unit increase in __humidity__, O3 is predicted to increase by 0.07667 units, assuming other variables (temp and ibh) are held constant.
+
+3. For each one-unit increase in __ibh__, O3 is predicted to decrease by 0.0009648 units, assuming other variables (temp and humidity) are held constant.
+
+The model suggests a strong relationship between the predictors and O3 levels, with temperature being the most significant predictor, as indicated by its highest t-value. Given the moderately high $R^2$ $\approx$ 67%, we can initially accept the regression model is doing a good job at explaining the variability in Ozone Level, O3.
+
+In our model analysis, we aim to compare the predicted O3 levels with the actual values obtained.
+
+```{r anova_trn_ozone}
+anova_results <- anova(oz_trn_lm)
+print(anova_results)
+```
+__Impact of Predictor Variables on O3__ \newline
+The sum of squares for each predictor quantifies its contribution to the total variability in O3 levels, with temperature accounting for the largest share (8785.7), followed by humidity (624.2) and ibh (492.4). The mean square, derived from dividing the sum of squares by the degrees of freedom, is used to calculate the F-statistic. Temperature has an F value of 415.387 and a highly significant p-value (< 2.2e-16), indicating a robust relationship with O3. Humidity (F = 29.514, p = 1.415e-07) and ibh (F = 23.281, p = 2.556e-06) are also significant, though less influential. These results reject the null hypothesis, confirming that each predictor significantly affects O3 levels at conventional significance thresholds. The residuals, with 229 degrees of freedom, yield a sum of squares of 4843.5 and a mean square of 21.2, suggesting that the model explains a substantial portion of the variability in O3. Temperature emerges as the dominant predictor, with humidity and ibh playing secondary roles.
+
+\textbf{c-) Visually by using the graphs, comments on regression model assumptions.(5 points)}
+
+```{r oz_lm_data_plot}
+# Plot O3 vs temp
+plot_temp <- ggplot(ozone_train, aes(x = temp, y = O3)) +
+  geom_point(color = "gold") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "O3 vs Temperature",
+       x = "Temperature",
+       y = "O3 Levels") +
+  theme_minimal()
+
+# Plot O3 vs humidity
+plot_humidity <- ggplot(ozone_train, aes(x = humidity, y = O3)) +
+  geom_point(color = "darkgreen") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "O3 vs Humidity",
+       x = "Humidity",
+       y = "O3 Levels") +
+  theme_minimal()
+
+# Plot O3 vs ibh
+plot_ibh <- ggplot(ozone_train, aes(x = ibh, y = O3)) +
+  geom_point(color = "steelblue") +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "O3 vs IBH",
+       x = "IBH",
+       y = "O3 Levels") +
+  theme_minimal()
+
+# Combine the plots into a single plot layout
+grid.arrange(plot_temp, plot_humidity, plot_ibh, ncol = 3)
+```
+
+Given the visualization of graphs via individual plots for each predictor variable, we observe that there is a high amount of scatter outside of the regression lines. This convinces us to further examine the residuals to identify if a linear association is the appropriate mechanism to depict the relationship between O3 and the predictor variables, temp, humidity and ibh.
+
+```{r residual_train_analysis}
+par(mfrow=c(2,2))
+plot(oz_trn_lm)
+```
+The diagnostic plots above show residuals in four different ways: \newline
+1. \textbf{Residuals vs Fitted} This plot checks whether the assumption of a linear relationship holds in the model. Ideally, residuals should be scattered randomly around zero, showing a balanced fit. In this case, a curvilinear pattern suggests that the relationship between the predictors and the response variable is not strictly linear. The presence of positive and negative residuals indicates that while our model is reasonably capturing the relationship between predictors and the response variable, there may still be significant non-linearities or complexities in the data. \newline
+2. \textbf{Normal QQ} This plot evaluates whether the residuals follow a normal distribution, with the ideal scenario being that all points align closely with the diagonal line. In this case, the residuals fall primarily on the dotted gray line with a slight departure from normality on the top tail end with a few extreme values highlighted which could indicate that these residuals deviate significantly from what’s expected under normal distribution, suggesting the presence of outliers. This non-normality can skew the model’s predictions and lead to less reliable parameter estimates, as it violates a core assumption of linear regression. \newline
+3. \textbf{Scale-Location} This plot helps assess whether the residuals have constant variance, a key assumption in linear regression. Ideally, the residuals should be scattered randomly around a horizontal line, which is what we see for the most part, but the slightly diagonal "wave" curve could violate the assumption of constant error variance, which could lead to inefficiencies in the model’s predictions and affect its reliability for unknown data. \newline
+4. \textbf{Residuals vs Leverage} The plot is crucial for identifying influential data points that could disproportionately impact the model. Ideally, residuals should be randomly scattered which is what we observe here with slight curve that tapers downwards as leverage increase. This pattern suggests that certain data points in the mean of the data set could be exerting an influence on the model’s fit. These high-leverage points (i.e., 53, 220, 167) could be pulling the model in their direction, making it less accurate overall.\newline
+
+Given the mixed behavior identified in the residual plots, I will conduct the Brown-Forsythe Test ($\alpha = 0.01$) to test whether residuals to examine the constancy of error variances in our model.
+
+```{r brwn_fors_tst_oz_trn}
+# Extract residuals
+ei <- residuals(oz_trn_lm)
+
+# Create data frame
+bf_data <- data.frame(
+  O3 = ozone_train$O3,
+  temp = ozone_train$temp,
+  humidity = ozone_train$humidity,
+  ibh = ozone_train$ibh,
+  ei = ei)
+
+# Calculate the median of hospital beds
+median_temp <- median(ozone_train$temp)
+
+# Create hospital_beds_group variable based on median
+bf_data$temp_group <- as.factor(ifelse(bf_data$temp < median_temp, 1, 0))
+
+# Perform Levene's test using the residuals and temp_group based on the median
+leveneTest(ei ~ temp_group, data = bf_data, center = median)
+```
+$H_{o}~: \sigma_{1}^2 = \sigma_{2}^2 = ... =\sigma_{k}^2$ The error variances are constant (homoscedasticity). \newline
+
+$H_{a}: \sigma_{i}^2 \neq \sigma_{j}^2$ The error variances are not constant (heteroscedasticity), where at least one group variance is not equal. \newline
+
+The decision rule is as follows: \newline
+
+1. If $p-value \ge \alpha$, then we fail to reject $H_{0}$, concluding the error variances are constant. \newline
+2. If $p-value < \alpha$, then we reject $H_{0}$ and conclude $H_{a}$, concluding the error variances are not constant.\newline
+
+The Brown-Forsythe test assesses whether different groups exhibit equal variances, a condition known as homogeneity of variances. One advantage of this test is its robustness to non-normality in the data. In our analysis, the F statistic was 14.907, with a p-value of 0.0001467—significantly below the 0.01 threshold, so we are led to reject $H_{0}$ concluding that the error variances are not constant, thereby indicating heteroscedasticity. In other words, the variability of the residuals changes across levels of the fitted values, rather than remaining uniform.
+
+As a final means of analysis of our model, I will plot the standardized residuals to identify the potential outliers that may be present in our dataset that could be influencing the visual deviations our residual plots pointed to.
+
+```{r std_resi_oz_trn}
+ozone_train$Residuals <- residuals(oz_trn_lm)
+ozone_train$Standardized_Residuals <- rstandard(oz_trn_lm)
+std_residuals <- rstandard(oz_trn_lm)
+
+outliers <- ozone_train %>% filter(abs(Standardized_Residuals) > 3)
+print(outliers) 
+
+ggplot(data = data.frame(Fitted = oz_trn_lm$fitted.values, Std_Residuals = std_residuals), 
+       aes(x = Fitted, y = Std_Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = 3, linetype = "dashed", color = "darkgreen") +
+  geom_hline(yintercept = -3, linetype = "dashed", color = "darkgreen") +
+  labs(title = "Standardized Residuals vs Fitted Values", 
+       y = "Standardized Residuals", 
+       x = "Fitted Values") +
+  theme_minimal()
+```
+
+Standardized residuals are the residuals from a regression model scaled by their estimated standard deviation. A common threshold for identifying potential outliers is residuals greater than 3 or less than -3, which corresponds to roughly 99.7% of values in a normal distribution (based on the empirical rule). Residuals outside this range indicate that an observation significantly deviates from the model’s prediction. Such outliers can disproportionately influence the regression results, potentially distorting coefficient estimates and predictions. By examining standardized residuals, we can pinpoint data points that may exert undue influence on the model. In this analysis, Row 220 was identified as a potential outlier based on the dataset output and the corresponding graph.
+
+With the presence of one outlier and a lack of constancy of error variances, we can conclude that linear regression may not be the ideal way to depict our relationship between the response and predictor variables.
+
+\textbf{d-) Test the model performance on the test data and comment of model stability and performance. (5 points)}
+
+To evaluate the model’s performance on the test data, we visualize predictions against actual values and compute error metrics.
+
+```{r cmp_tst_trn_nontrnsfrmed}
+PredictedTrain<-predict(oz_trn_lm,ozone_train)
+
+ModelTrain<-data.frame(obs = ozone_train$O3,pred=PredictedTrain)
+
+Model_Train=defaultSummary(ModelTrain)
+
+PredictedTest<-predict(oz_trn_lm,ozone_test)
+
+ModelTest<-data.frame(obs = ozone_test$O3, pred=PredictedTest)
+
+Model_Test=defaultSummary(ModelTest)
+
+g = rbind(Model_Train,Model_Test)
+print(g)
+```
+
+The model demonstrates improved prediction accuracy on the testing dataset, as indicated by a lower RMSE compared to the training data. This reduction in RMSE suggests that the model’s error is minimized when applied to unseen data. Similarly, the decrease in MAE on the testing dataset indicates a smaller average absolute difference between predicted and actual values, reinforcing the model’s superior performance on new observations. \newline
+
+Additionally, the increase in $R^2$ for the testing data implies that the model accounts for a larger proportion of variance in ozone levels, reflecting enhanced generalization and predictive capability. This indicates not only a good fit for the training data but also effective generalization to new data, thereby increasing its reliability for predicting ozone levels. \newline
+
+\textbf{e-) Perform Breusch-Pagan Test, write down null and alternative hypotheses and your conclusion.(5 points)}
+
+First, let us state the hypotheses: \newline
+$H_{o}$: $\sigma_i^2 = \sigma^2$ for all _i_: There is homoscedasticity (constant variance) in the residuals. In other words, the variance of the errors does not depend on the independent variables in the regression model.\newline
+$H_{a}$: $\sigma_i^2 \neq \sigma^2$: There is heteroscedasticity (non-constant variance) in the residuals. This means that the variance of the errors is related to the independent variables in the regression model.\newline
+
+Next, let us state the decision rule: \newline 
+1. If $p\text{-value} \ge \alpha = 0.05$ \text{ or } $BP < \chi^2_{1 - \alpha, df}$, then we fail to reject $H_0$, concluding that the residuals have constant variance. \newline
+2. If $p\text{-value} < \alpha = 0.05$ \text{ or } $BP > \chi^2_{1 - \alpha, df}$, then we reject $H_0$, concluding that the residuals do not have constant variance. \newline
+
+```{r breusch_pagan}
+# Perform the Breusch-Pagan test
+bp_test <- bptest(oz_trn_lm, studentize = FALSE)
+
+# Print the results
+print(bp_test)
+
+df_nontf <- length(coefficients(oz_trn_lm)) - 1 
+# Critical value at 95% confidence level (alpha = 0.05)
+alpha <- 0.05
+critical_value_nontf <- qchisq(1 - alpha, df = df_nontf)
+
+cat("Critical value Breusch-Pagan test at 95% confidence level:", critical_value_nontf, "\n")
+```
+The $p$-value is less than $\alpha = 0.05$ and the $BP$ statistic is greater than the critical value $\chi^2_{1 - \alpha, df}$, so we fail to reject $H_o$ and conclude $H_a$, which accepts that the residuals do not have constant variance (heteroscedasticity).
+
+\textbf{f-) Use the Box–Cox method to determine the best transformation on the response. if transformation is needed, perform the transformation and rebuild the model on the train data and check the model stability on the test data set. (25 points)}
+
+```{r box_cox}
+# Perform Box-Cox transformation
+boxcox_result <- boxcox(oz_trn_lm, lambda = seq(-0.5,0.5,0.01))
+
+# Find the optimal lambda
+optimal_lambda <- boxcox_result$x[which.max(boxcox_result$y)]
+
+# Print the optimal lambda
+print(paste("Optimal Lambda:", optimal_lambda))
+```
+The graph (_log-likelihood function for a Box-Cox transformation_) shows that the optimal Box-Cox transformation parameter lies near the peak of the curve, which appears to be around $\lambda$ = 0. This suggests that a power transformation close to the optimal $\lambda$ will best stabilize the variance and improve model fit. The optimal $\lambda$ is 0.24, which suggests a power transformation might be ideal. The Box-Cox transformation formula for $\lambda \neq 0$ is: $y' = \frac{y^\lambda - 1}{\lambda}$, since $\lambda = 0.24$, $O3_{transformed} = \frac{O3^{0.24} - 1}{0.24}$
+
+```{r lambda_transformation}
+oz_trnsfrm_lm <-lm(O3^(optimal_lambda) ~ temp + humidity + ibh, data = ozone_train)
+
+# Transform the response variable in the training data
+ozone_train$O3_transformed <- (ozone_train$O3^optimal_lambda - 1) / optimal_lambda
+
+# Check the first few values to confirm transformation
+head(ozone_train$O3_transformed)
+```
+By applying the Box-Cox transformation using the optimal lambda value of 0.24, we aim to stabilize variance and improve the normality of the response variable. We now examine the performance improvements we should have achieved as a result of this transformation on the training and testing datasets.
+
+```{r trnsfrmd_train_ozone}
+summary(oz_trnsfrm_lm)
+
+# Rebuild the model using the transformed response variable
+PredictedTrnsfrmTrain<-predict(oz_trnsfrm_lm,ozone_train)
+
+# Transformed Trained Data on Predicted Train Data 
+ModelTrnsfrmTrain<-data.frame(obs = ozone_train$O3^(optimal_lambda),pred=PredictedTrnsfrmTrain)
+
+Model_Trnsfrm_Train=defaultSummary(ModelTrnsfrmTrain)
+
+# Transformed Test Data on Predicted Test Data 
+PredictedTrnsfrmTest<-predict(oz_trnsfrm_lm,ozone_test)
+
+ModelTrnsfrmTest<-data.frame(obs = ozone_test$O3^(optimal_lambda),pred=PredictedTrnsfrmTest)
+
+Model_Trnsfrm_Test=defaultSummary(ModelTrnsfrmTest)
+
+trns = rbind(Model_Trnsfrm_Train, Model_Trnsfrm_Test)
+print(trns)
+```
+The application of the Box-Cox transformation to the ozone model resulted in a marked improvement in its performance on the training data set. \newline
+Let us examine the summary output of the transformed model. First, the residual range decreased substantially—from -11.28 to 14.10 in the non-transformed model to -0.50 to 0.46 post-transformation—indicating tighter clustering of predicted values around actual values and a reduction in model error. Additionally, the standard errors of the intercept and predictor variables (temperature, humidity, and IBH) all declined after the transformation, reflecting a more precise estimation of coefficients and strengthening the reliability of the relationships between the predictors and the response variable. The Residual Standard Error (RSE) experienced a notable reduction, dropping from 4.599 in the non-transformed model to 0.163 in the transformed model, highlighting a significantly improved model fit. Furthermore, the $R^2$ value increased from 0.671 to 0.7045, indicating that the transformed model explains a greater proportion of the variance in ozone levels, thereby enhancing its explanatory power. Overall, the Box-Cox transformation substantially improved the model’s performance by reducing error variance, refining coefficient estimates, and increasing the variability explained by the predictors. The sharp decrease in residuals and the improvement in key metrics such as RSE and $R^2$ demonstrate that the transformed model is not only more accurate but also more stable, making it a more robust and reliable tool for predicting ozone levels based on temperature, humidity, and IBH compared to the non-transformed model.
+
+We dive deeper into the overall contrast the performance of the model on the both the datasets before and after transformation using our key performance metrics (RMSE, MAE, $R^2$). 
+<br>      
+<table>
+<caption><span id="tab:table1">Table 1.1: </span>Examining Non-Transformed vs Transformed Model Performance of Ozone Train and Test Data</caption>
+
+Variable          Non-Transformed Train          Transformed Train            Non-Transformed Test           Transformed Test
+-------------     ----------------------         ------------------           ------------------             ------------------
+RMSE              4.5593                          0.1611                      4.3559                         0.1630
+MAE               3.5856                          0.1288                      3.3941                         0.1290
+$R^2$             0.6715                          0.7045                      0.7162                         0.7380
+</table>
+
+After fitting the transformed model and concluding its predictive performance improvements on both the training and testing data, we now execute the Breusch-Pagan test and compare its performance to the non-transformed model's results on the Breusch-Pagan test.
+```{r trnsfrmd_bp_test}
+bp_test_transformed <- bptest(oz_trnsfrm_lm, studentize = FALSE)
+
+print(bp_test_transformed)
+
+df <- length(coefficients(oz_trnsfrm_lm)) - 1 
+# Critical value at 95% confidence level (alpha = 0.05)
+alpha <- 0.05
+critical_value <- qchisq(1 - alpha, df = df)
+
+cat("Critical value Breusch-Pagan test at 95% confidence level:", critical_value, "\n")
+```
+<br>      
+<table>
+<caption><span id="tab:table2">Table 1.2: </span>Breusch-Pagan Performance on Non-Transformed vs Transformed Model for Training Data</caption>
+
+Variable                  Non-Transformed Ozone Model    Transformed Ozone Model
+-------------             ----------------------         ------------------
+$\chi_{BP}$               20.791                         5.2559
+df                        3                              3
+$\alpha$                  0.05                           0.05 
+$\chi_{\alpha - 1, df}$   7.81                           7.81
+p-value                   0.0001163                      0.154
+</table>
+
+The transformation applied to the ozone model has significantly improved its performance, both in terms of reducing prediction errors and resolving key issues like heteroscedasticity (as evidenced by the non-transformed ozone model significant p-value that led us to reject $H_0$ and conclude that its residuals did not have constant variance). The transformed model not only has tighter residuals but also demonstrates constant variance as evidenced by the results of the Breusch-Pagan $\chi^2_{BP}$ = 5.2559 < $\chi^2_{(0.95, 3)} \approx 7.81$ with a non-significant p-value = 0.154 (greater than $\alpha = 0.05$) leading us to conclude $H_0$, concluding homoscedasticity of variances of residuals, which is critical for ensuring model reliability and stability across different data sets. Overall, the transformed model is far superior to the non-transformed model, as it shows improved predictive accuracy and robustness on both the training and test datasets.
+
+## Problem 3
+
+\textbf{Using the teengamb data in the Faraway r library (data(teengamb)), fit a model with gamble as the response and the other variables as predictors (20 points total).}
+
+__a-) Predict the data(teengamb)amount that a male with average (given these data) status, income and verbal score would gamble along with an appropriate 95% CI (5 points).__
+
+```{r fit_n_predict_teengamb_avg}
+# Load the data
+data(teengamb, package = "faraway")
+
+# Fit the linear model
+teengamb_fit <- lm(gamble ~ factor(sex) + status + income + verbal, data = teengamb)
+
+# Plot the residuals 
+par(mfrow=c(2,2))
+plot(teengamb_fit)
+
+# Distinguish the male 
+male_pop <- teengamb %>% filter(teengamb$sex == factor(0))
+
+# Predict
+predict(teengamb_fit, 
+  data.frame(sex=factor(0),
+    status=mean(male_pop$status),
+    income=mean(male_pop$income),
+    verbal=mean(male_pop$verbal)), 
+  interval="predict", level=0.95)
+```
+A male with the average predictor variables, sex, status, income and verbal, along the 95% confidence interval would have a gambling expenditure of 29.78 currency units per annum with a 95% confidence that the true gambling expenditure lies between -16.83 and 76.38.
+
+\textbf{b-) Repeat the prediction for a male with maximal values (for this data) of status, income and verbal score. Which CI is wider and why is this result expected? (5 points)}
+
+```{r fit_n_predict_teengamb_maximal}
+# Predict
+predict(teengamb_fit, 
+  data.frame(sex=factor(0),
+    status=max(male_pop$status),
+    income=max(male_pop$income),
+    verbal=max(male_pop$verbal)), 
+  interval="predict", level=0.95)
+```
+
+A male with the maximum values for the predictor variables—sex, status, income, and verbal—has an estimated annual gambling expenditure of 71.31 currency units. The 95% confidence interval for this estimate ranges from 17.07 to 125.55, meaning we are 95% confident that the true gambling expenditure falls within this range. The confidence interval is relatively wide because the prediction is based on values that are farther from the mean, increasing the uncertainty and thus broadening the interval.
+
+__c-) Fit a model with sqrt (gamble) as the response but with the same predictors. Now predict the response and give a 95% prediction interval for the individual in (a). Take care to give your answer in the original units of the response (5 points).__
+
+```{r trsnfrmd_model}
+# Fit linear model with sqrt(gamble) as the response
+teengamb_sqrt_fit <- lm(sqrt(teengamb$gamble) ~ factor(sex) + status + income + verbal, data = teengamb)
+summary(teengamb_sqrt_fit)
+```
+
+```{r pred_via_trnsfrm_mod}
+pred_sqrt <- predict(teengamb_sqrt_fit,
+  data.frame(sex=factor(0),
+    status=mean(male_pop$status),
+    income=mean(male_pop$income),
+    verbal=mean(male_pop$verbal)), 
+  interval = "predict", level=0.95)
+
+print(pred_sqrt)
+```
+
+Since the model is built on the square root of gambling expenditure, to convert the predicted response and the confidence intervals back to the original units, we will square the predicted values and bounds of the prediction interval.
+```{r trnsfrm_data_to_org}
+# Square the predicted value and intervals to get the result in the original scale
+pred_original <- c(fit = pred_sqrt[1, "fit"]^2, 
+                   lwr = max(0, pred_sqrt[1, "lwr"]^2),  # Replace negative lower bound with 0
+                   upr = pred_sqrt[1, "upr"]^2)
+
+# Print the squared values in original units (gambling expenditure)
+print(pred_original)
+```
+
+There is 95% confidence that the true gambling expenditure for this a male with average predictor variables lies between 0.012 and 75.184 units of currency, with a predicted expenditure of about 19.28 units. The wide prediction interval suggests substantial uncertainty in the prediction.
+
+\textbf{d-) Repeat the prediction for the model in (c) for a female with status=20, income=1, verbal = 10. Comment on the credibility of the result (5 points).}
+```{r trnsfrmd_female_predict}
+# New individual: female with status = 20, income = 1, verbal = 10
+# Predict using transformed sqrt model
+pred_sqrt_female <- predict(teengamb_sqrt_fit, 
+                    data.frame(sex=factor(1), 
+                               status=20,
+                               income=1,
+                               verbal=10), 
+                    interval = "prediction", level = 0.95)
+
+# Convert the prediction and interval back to original units (squared)
+pred_original_female <- c(fit = pred_sqrt_female[1, "fit"]^2, 
+                          lwr = max(0, pred_sqrt_female[1, "lwr"]^2),  # Replace negative lower bound with 0
+                          upr = pred_sqrt_female[1, "upr"]^2)
+
+# Print the squared prediction and interval
+print(pred_original_female)
+```
+
+The results reveal discrepancies worth examining. First, the predicted value of 4.35 for the female in description seems unexpectedly low, despite us knowing the females in this dataset gamble, on average, less than males based on our analysis in Assignment 1. The lower bound being 47.73 and the upper bound being 7.49 also does not make logical sense. The lower bound should not exceed the fit, and the upper bound should not be lower than the fit value. This indicates something might be wrong with the model’s prediction interval calculations. If the input values (status = 20, income = 1, verbal = 10) are outside the range of the values seen in the training data, this can lead to extrapolation issues. Moreover, the low predicted value, juxtaposed with an illogical prediction interval, suggests that the model may not sufficiently reflect the dynamics of gambling expenditure. It also raises the possibility that fundamental assumptions—such as linearity, homoscedasticity, and the normality of residuals—might be violated. Unaccounted factors could also play a critical role in influencing gambling behavior.

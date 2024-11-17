@@ -1,0 +1,671 @@
+---
+title: 'CSCI E-106:Assignment 6'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Problem 1
+
+\textbf{Use the divusa data under library(faraway).(type following commands in R Console: library(faraway);data("divusa")) (25 points, 5 points each)}
+
+```{r read_divusa}
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(faraway)
+  library(lattice)
+  library(caret)
+  library(ggfortify)
+  library(dplyr)
+  library(car)
+  library(gridExtra)
+  library(lmtest)
+  library(MASS)
+  library(GGally)
+  library(olsrr)
+  library(caret)
+  library(lmtest)
+})
+divusa_data <- as.data.frame(divusa)
+```
+\textbf{a-) Fit a regression model with divorce as the response and unemployed, femlab, marriage, birth and military as predictors.}
+```{r divusa_mod}
+divusa_lm <- lm(divorce ~ unemployed + femlab + marriage + birth + military, data=divusa_data)
+summary(divusa_lm)
+```
+The residuals represent the differences between the observed and predicted divorce values. Most residuals are relatively small, ranging from -3.86 to 3.83, with the majority clustering around the lower quartiles (-0.89, 0.87), meaning that the model is reasonably accurate for many predictions. When examining the coefficients, we observe that the most influential and significant variables are femlab, birth and marriage. These have strong effects on divorce and highly significant p-values. The unemployment and military variables are marginally significant, suggesting a weak or less clear effect on divorce. The model explains a large portion of the variance, given the $R^2$ of 0.928, in divorce rates and is statistically significant, but some predictors have more influence than others.
+
+\textbf{b-) For the same model, compute the VIFs. Is there evidence that collinearity causes some predictors not to be significant? Explain.} 
+
+First, I create a pairwise plot matrix to visualize the relationships between the variables in our dataset. The lower triangle of the matrix displays smoothed scatterplots with both the smooth lowess and the regression line, the diagonal elements display histograms (provide insight into the univariate distributions of the selected variables), and the upper triangle of the matrix displays the correlation coefficients.\newline
+
+__Note: I suppress the code/messages as it outputs many lines of code about binwidth. However, it is all there in the .rmd__
+
+```{r divusa_corr, message=FALSE, warning=FALSE, echo=FALSE}
+custom_smooth_regression <- function(data, mapping) {
+  ggplot(data = data, mapping = mapping) +
+    geom_point() +  
+    geom_smooth(method = "loess", color = "blue", se = TRUE) +  
+    geom_smooth(method = "lm", color = "red", se = FALSE) +  
+    theme_minimal() 
+}
+
+ggpairs(divusa_data, 
+        columns = c('divorce', 'unemployed', 'femlab', 'marriage', 'birth', 'military'),
+        lower = list(continuous = wrap(custom_smooth_regression)),
+        diag = list(continuous = wrap("barDiag")),
+        upper = list(continuous = wrap("cor")))
+```
+The significant correlation (***) between femlab, birth, and marriage with divorce and with each other suggests potential multicollinearity. This could inflate the standard errors for predictors like unemployed and military (which seem to be significantly collinear), causing them to appear less significant as predictors despite their relationship with the response variable. 
+
+To investigate collinearity empirically, we can use the Variance Inflation Factor (VIF), which quantifies how much the variance of a coefficient is inflated due to collinearity. A VIF value above 5 or 10 indicates problematic multicollinearity.
+
+```{r vif_calc}
+ols_vif_tol(divusa_lm)
+```
+All the VIF values are below 10, indicating that multicollinearity is not a severe issue. However, `femlab` has the highest VIF at 3.61, suggesting some degree of collinearity, but within acceptable limits.
+
+\textbf{c-) Does the removal of insignificant predictors from the model reduce the collinearity? Investigate.}
+
+Given `military` and `unemployed` are insignificant predictors, we build a new model, `divusa_rmv_insig_lm`, without these independent variables and examine the updates to the model performance. 
+
+However, first, let us use the General _F_-test to confirm whether we can justify dropping these variables.
+
+$H_o$: $\beta_{military} = \beta_{unemployed} = 0$\newline
+$H_a$: $\beta_{military} \neq 0$ or $\beta_{unemployed} \neq 0$, one of them are significant so we cannot drop them\newline
+
+```{r simpl_mod_divusa}
+divusa_rmv_insig_lm <- lm(divorce ~ femlab + marriage + birth, data=divusa_data)
+
+anova(divusa_rmv_insig_lm,divusa_lm)
+```
+The `anova()` function performs a hypothesis test comparing the two models, and in this case, the _p_-value is 0.05 which is lower than or equal to our chosen significance $\alpha = 0.05$, so we cannot reject the null hypothesis and we conclude that these variables, military and unemployed, are not significant and we can drop them from our model.
+
+```{r divusa_mod_remv_insig}
+summary(divusa_rmv_insig_lm)
+```
+```{r divusa_mod_remv_insig_corr}
+vif(divusa_rmv_insig_lm)
+```
+<br>      
+<table>
+<caption><span id="tab:table1">Table 1.1: </span>Examining Model VIF Values: Pre and Post Removal of Insignificant Predictors</caption>
+
+Variable          Full Model          Only Significant Model         
+-------------     -----------         ------------------     
+femlab VIF          3.613276          1.893390                               
+marriage VIF        2.864864          2.201891                      
+birth VIF           2.585485          2.008469
+$R^2$               0.9208            0.9141
+Adj. $R^2$          0.9152            0.9106
+</table>
+
+After removing the insignificant predictors from the model and recalculating VIF, we observe the VIF values decreased for femlab, marriage and birth, indicating a reduction in collinearity among the remaining predictors; however, the $R^2$ also decreased, which is common when predictor variables are removed. Reduced VIFs indicate that the model is now more robust, with significant predictors better representing the underlying relationships without the confounding effects of the previously included insignificant predictors.  
+  
+\textbf{d-) Visually using the appropriate graphs, comment on the regression model assumptions.}
+
+__Full Model__
+```{r full_model}
+par(mfrow=c(2,2))
+plot(divusa_lm)
+```
+
+__Insignificant Predictors Removed Model__
+```{r w_o_insig_model}
+par(mfrow=c(2,2))
+plot(divusa_rmv_insig_lm)
+```
+Between the two models, the diagnostic plots (Residuals vs Fitted, Scale Location, and Residuals vs Leverage) show similar patterns overall. However, in the reduced model, there is a more pronounced peak at a leverage of 0.05, compared to a broader peak in the full model. Additionally, data point 27 stands out as a potential outlier with a Cook’s Distance of 0.5 in the reduced model, whereas it only marginally crosses the Cook’s Distance threshold in the full model. Notably, the Q-Q plot in the reduced model shows residuals clustering more closely along the expected diagonal, suggesting an improvement in the normality of residuals after removing insignificant predictors.
+
+\textbf{e-) Conduct the Breusch Pagan Test test.}
+
+First, let us state the hypotheses: \newline
+$H_{o}$: $\sigma_i^2 = \sigma^2$ for all _i_: There is homoscedasticity (constant variance) in the residuals. In other words, the variance of the errors does not depend on the independent variables in the regression model.\newline
+$H_{a}$: $\sigma_i^2 \neq \sigma^2$: There is heteroscedasticity (non-constant variance) in the residuals. This means that the variance of the errors is related to the independent variables in the regression model.\newline
+
+Next, let us state the decision rule: \newline 
+1. If $p\text{-value} \ge \alpha = 0.05$ \text{ or } $BP < \chi^2_{1 - \alpha, df}$, then we fail to reject $H_0$, concluding that the residuals have constant variance. \newline
+2. If $p\text{-value} < \alpha = 0.05$ \text{ or } $BP > \chi^2_{1 - \alpha, df}$, then we reject $H_0$, concluding that the residuals do not have constant variance. \newline
+
+```{r bp_test}
+bp_test_org <- bptest(divusa_lm, studentize = FALSE)
+
+print(bp_test_org)
+
+df_org <- length(coefficients(divusa_lm)) - 1 
+alpha <- 0.01
+critical_value_org <- qchisq(1 - alpha, df = df_org)
+
+cat("Critical value Breusch-Pagan test of Full Model at 99% confidence level:", critical_value_org, "\n")
+
+bp_test_insig <- bptest(divusa_rmv_insig_lm, studentize = FALSE)
+
+print(bp_test_insig)
+
+df_insig <- length(coefficients(divusa_rmv_insig_lm)) - 1 
+alpha <- 0.01
+critical_value_insig <- qchisq(1 - alpha, df = df_insig)
+
+cat("Critical value Breusch-Pagan test of Only Significant P.V. Model at 99% confidence level:", critical_value_insig, "\n")
+```
+By removing the insignificant variables and comparing the results of the Breusch-Pagan tests at a significance level of $\alpha$ = 0.01, we observe that the model without the insignificant predictors maintains constant variance ($BP$ = 11.037 < $\chi^2_{\alpha - 1, df} \approx$ 11.34487 and p-value = 0.012 $\ge$ $\alpha$ = 0.01). In contrast, the full model violates this assumption ($BP = 16.581 > \chi^2_{\alpha-1, df} \approx 15.08627$ and $p$-value $= 0.005 < \alpha = 0.01$). Therefore, we conclude that the constancy of variance holds only for the only-significant-predictor-variables model, and not in the full model; however, increasing the value of $\alpha$ would ensure both the models support homoscedasticity.
+
+## Problem 2
+
+\textbf{Commercial properties data set. A commercial real estate company evaluates vacancy rates, square footage, rental rates, and operating expenses for commercial properties in a large metropolitan area in order to provide clients with quantitative information upon which to make rental decisions. The data are taken from 81 suburban commercial properties include the age (X1), operating expenses and taxes (X2), vacancy rates (X3), total square footage (X4), and rental rates (Y). (45 points)}
+
+```{r read_data_comprop}
+com_prop_data <- read.csv('/Users/shreyabajpai/CSCI E-106 - Data Modeling/CSCI E-106 Assignment 6/Commercial Properties Data Set.csv')
+Y <- com_prop_data$Y
+X1 <- com_prop_data$X1
+X2 <- com_prop_data$X2
+X3 <- com_prop_data$X3
+X4 <- com_prop_data$X4
+```
+
+\textbf{a-) Obtain the scatter plot matrix and the correlation matrix. Interpret these and state your principal findings.(5 points)}\newline
+__Note: I suppress the code/messages as it outputs many lines of code about binwidth. However, it is all there in the .rmd__
+```{r corr_plot, message=FALSE, warning=FALSE, echo=FALSE}
+custom_smooth_regression <- function(data, mapping) {
+  ggplot(data = data, mapping = mapping) +
+    geom_point() +  
+    geom_smooth(method = "loess", color = "blue", se = TRUE) +  
+    geom_smooth(method = "lm", color = "red", se = FALSE) +  
+    theme_minimal() 
+}
+
+ggpairs(com_prop_data, 
+        columns = c('Y', 'X1', 'X2', 'X3', 'X4'),
+        lower = list(continuous = wrap(custom_smooth_regression)),
+        diag = list(continuous = wrap("barDiag")),
+        upper = list(continuous = wrap("cor")))
+```
+
+The histograms on the scatterplot matrix diagonal show that Y and X2 have concentrated value ranges, while X1, X3, and X4 are more broadly distributed. Notably, Y has strong positive correlations with X4 (0.535) and X2 (0.414), while X2 correlates moderately with X3 (-0.380) and X4 (0.441). X3 shows weak correlations overall, suggesting a minimal linear relationship.
+
+The scatterplots reveal complexities in the data, with non-linear patterns that the regression lines do not fully capture. For instance, Y and X1’s relationship is curvilinear, and Y and X4 display a hyperbolic trend. These findings suggest that a linear regression may not sufficiently model the variable interactions, especially given the non-linear behaviors highlighted by the lowess smooths.
+
+\textbf{b-) Fit regression model for four predictor variables to the data. State the estimated regression function.(5 points)}
+
+```{r lm_rental}
+com_prop_lm <- lm(Y ~ X1 + X2 + X3 + X4, data=com_prop_data)
+summary(com_prop_lm)
+```
+The estimated regression function is: $Y = 12.20 - 0.142 \times X1 + 0.282 \times X2 + 0.6193 \times X3 + 0.000007924 \times X4$.
+
+\textbf{c-) Visually using the appropriate graphs, comment on the regression model assumptions. (5 points)}
+
+Linear regression has the following assumptions: \newline
+(1) The residuals (errors) are identically and independently distributed. \newline
+(2) The residuals (errors) are normally distributed, with mean 0 and equal variance (homoscedasticity). \newline
+
+```{r lin_chk_resi}
+autoplot(com_prop_lm) + theme_bw() + theme(
+    text = element_text(size = 12), 
+    axis.title = element_text(size = 14),
+    legend.position = "bottom"
+  ) 
+```
+The diagnostic plots above show residuals in four different ways: \newline
+1. \textbf{Residuals vs Fitted} This plot checks whether the assumption of a linear relationship holds in the model. Ideally, residuals should be scattered randomly around zero, showing a balanced fit. In this case, a "wave" pattern suggests that the relationship between the predictors and the response variable is not strictly linear, especially with the clustering of residuals in the low trough of the "wave" and the few highlighted points that may be pulling the "wave" to its peak (42, 62) and troughs (6). \newline
+2. \textbf{Normal QQ} This plot evaluates whether the residuals follow a normal distribution, with the ideal scenario being that all points align closely with the diagonal line. In this case, the residuals fall primarily on the dotted gray line with heavy tails and few extreme values highlighted which could indicate that these residuals deviate significantly from what’s expected under normal distribution, suggesting the presence of outliers. This non-normality can skew the model’s predictions and lead to less reliable parameter estimates, as it violates a core assumption of linear regression. \newline
+3. \textbf{Scale-Location} This plot helps assess whether the residuals have constant variance, a key assumption in linear regression. Ideally, the residuals should be scattered randomly around a horizontal line, which is what we see for the most part, but the slightly downward "wave" curve could violate the assumption of constant error variance, which could lead to inefficiencies in the model’s predictions and affect its reliability for unknown data. \newline
+4. \textbf{Residuals vs Leverage} The plot is crucial for identifying influential data points that could disproportionately impact the model. Ideally, residuals should be randomly scattered which is what we observe here with slight curve that tapers upwards as leverage increase. This pattern suggests that certain data points in the mean of the data set could be exerting an influence on the model’s fit. These high-leverage points (i.e., 6, 62, 80) could be pulling the model in their direction, making it less accurate overall.
+
+At first glance, there does not seem to be too much deviation between the expected nature of linear regression and the residuals plotted above. The possibility of potential outliers (as evidence in the heavy tails of the QQ-plot) exists and may be the reason we see the slight deviations from normality across the graphs.
+
+\textbf{d-) Divide the 81 cases into two groups. placing the 40 cases with the smallest fitted values into group 1 and the remaining cases into group 2. Conduct the Brown-Forsythe test.(10 points)}
+
+The hypotheses are: \newline
+$H_o$: Error variance is constant. \newline
+$H_a$: Error variance is not constant. \newline
+The decision rule is: \newline
+If $t^*_{BF} \leq t(1-\alpha/2;n-2)$ or $p-value \ge \alpha$, then we fail to reject $H_{0}$, concluding the error variances are constant. \newline
+2. $t^*_{BF} > t(1-\alpha/2;n-2)$ or $p-value < \alpha$, then we fail to reject $H_{0}$, concluding the error variances are constant. \newline
+
+```{r brwn_forsythe}
+fitted_values <- fitted(com_prop_lm)
+
+sorted_indices <- order(fitted_values)
+
+group_1_indices <- sorted_indices[1:40] 
+group_2_indices <- sorted_indices[41:81]  
+
+com_prop_data$group <- NA
+
+com_prop_data$group[group_1_indices] <- 1
+com_prop_data$group[group_2_indices] <- 2
+
+com_prop_data$group <- as.factor(com_prop_data$group)
+
+residuals_model <- residuals(com_prop_lm)
+
+leveneTest(residuals_model ~ com_prop_data$group, center = median)
+```
+The Brown-Forsythe test assesses whether different groups exhibit equal variances, a condition known as homogeneity of variances, while being robust to non-normality in the data. In our analysis, the F statistic is 0.3048, with a p-value of 0.5824—significantly above the 0.05 threshold, so we are led to accept $H_{0}$ concluding that the error variances are constant, thereby preserving homoscedasticity. In other words, the variability of the residuals does not change across levels of the fitted values.
+
+\textbf{e-) Perform a Box-Cox transformation analysis and decide if Y needs to be transformed.(5 points)}
+```{r box_cox}
+boxcox_result <- boxcox(com_prop_lm, lambda = seq(-0.5,0.5,0.01))
+optimal_lambda <- boxcox_result$x[which.max(boxcox_result$y)]
+print(paste("Optimal Lambda:", optimal_lambda))
+```
+The graph (_log-likelihood function for a Box-Cox transformation_) shows that the optimal Box-Cox transformation parameter lies near the peak of the curve, which appears to be around $\lambda$ = 0.5. This suggests that a power transformation close to the optimal $\lambda$ will best stabilize the variance and improve model fit. The optimal $\lambda$ is 0.5, which suggests either a square root or a power transformation might be ideal. The Box-Cox transformation formula for the power transformation is $\lambda \neq 0$ is: $y' = \frac{y^\lambda - 1}{\lambda}$, since $\lambda = 0.5$, $Y_{transformed} = \frac{Y^{0.5} - 1}{0.5}$.
+
+```{r lambda_transformation}
+com_prop_data$Y_transformed <- (com_prop_data$Y^optimal_lambda - 1) / optimal_lambda
+com_prop_data$Y_transformed_2 <- sqrt(com_prop_data$Y)
+
+com_prop_trnsfrm_lm <-lm(Y_transformed ~ X1 + X2 + X3 + X4, data = com_prop_data)
+com_prop_trnsfrm_lm_2 <-lm(Y_transformed_2 ~ X1 + X2 + X3 + X4, data = com_prop_data)
+
+summary(com_prop_trnsfrm_lm)
+summary(com_prop_trnsfrm_lm_2)
+```
+Between the two possible transformations with the lambda we obtained, we observe that both the model's $R^2$ are equivalent; however, the residuals are tighter, and the RSE, coefficient estimates and standard errors are lower in the _square root transformation model_ when compared to the power transformation model. We aim to stabilize variance and improve the normality of the response variable. We now examine the performance improvements we may have achieved as a result of the __square root__ transformation on the dataset.
+
+```{r perf_of_trnsf}
+# Non-Transformed Model
+Predicted <- predict(com_prop_lm, com_prop_data)
+
+ModelData <- data.frame(obs = com_prop_data$Y, pred = Predicted)
+
+ModelFull <- defaultSummary(ModelData)
+
+# Transformed Model
+PredictedTrnsfrm <- predict(com_prop_trnsfrm_lm_2, com_prop_data)
+
+# Inverse transformation to bring predictions back to original scale
+PredictedTrnsfrm_OriginalScale <- (PredictedTrnsfrm)^2
+
+ModelTrnsfrmData <- data.frame(obs = com_prop_data$Y, pred = PredictedTrnsfrm_OriginalScale)
+
+ModelTrnsfrm <- defaultSummary(ModelTrnsfrmData)
+
+trns = rbind(ModelFull, ModelTrnsfrm)
+print(trns)
+```
+
+The transformed model does not show significant improvements over the non-transformed model. The Root Mean Squared Error (RMSE), which reflects the average magnitude of prediction error, remains nearly identical between the two models (1.101 for the non-transformed and 1.102 for the transformed). Similarly, the Mean Absolute Error (MAE), which captures the average absolute difference between predicted and actual values, shows minimal change (0.8268 for the non-transformed model versus 0.8266 for the transformed). This suggests that the transformed model does not offer closer predictions to the true values compared to the non-transformed model.\newline
+
+The $R^2$ value, which indicates the proportion of variance explained by the model, decreased slightly from 0.5847 in the non-transformed model to 0.5841 in the transformed model. This small drop further indicates that the transformed model does not provide better explanatory power for the variation in the response variable.\newline
+
+The Box-Cox transformation, despite being a useful tool for stabilizing variance and improving model accuracy in many cases, has not enhanced the predictive performance in this instance. The minimal changes in RMSE, MAE, and $R^2$ suggest that the original model was already fitting the data well, and the transformation did not offer any substantial benefits. This outcome highlights that while transformations can be effective, they are not always necessary if the data is already well-suited for linear modeling.\newline
+
+\textbf{f-) Fit a second order model ($Y = b_0 + b_1 X_1 +b_2 X_2 + b_3 X_3+b_4X_4+b_5X_{1}^{2}+b_6X_{2}^{2}+b_7X_{3}^{2}+b_8X_{4}^{2}+b_9X_{1}X_{2}+ b_{10}X_{1}X_{3}+b_{11}X_{1}X_{4}+b_{12}X_{2}X_{3}+b_{13}X_{2}X_{4}+b_{14}X_{3}X_{4}+b_{15}X_{1}X_{2}X_{3}+b_{16}X_{1}X_{2}X_{4}+b_{17}X_{2}X_{3}X_{4}+b_{18}X_{1}X_{2}X_{3}X_{4}+b_{19}X_{1}X_{3}X_{4}$) Drop the insignificant variables from the model one at a time, refit the model and repeat this until all the variables you have in the model are significant. Compare this again the model in part b) (15 points)}
+
+```{r it_red_mod}
+full_mod <- lm(Y ~ X1 + X2 + X3 + X4 +
+                 I(X1^2) + I(X2^2) + I(X3^2) + I(X4^2) +
+                 X1:X2 + X1:X3 + X1:X4 + X2:X3 + X2:X4 + X3:X4 +
+                 X1:X2:X3 + X1:X2:X4 + X2:X3:X4 + X1:X2:X3:X4 + X1:X3:X4, data=com_prop_data)
+summary(full_mod)
+```
+
+Given that only a handful of independent variables are significant (X3, X1:X4, X2:X3, X1:X2:X3:X4), we can build a function to scan the p-value of each of the independent variables and drop the ones which are non-significant ($\alpha \ge 0.05$).
+
+```{r fn_drop_insig_var}
+drop_insignificant_vars <- function(model, data) {
+  while (TRUE) {
+    p_values <- summary(model)$coefficients[, 4]
+    max_p_value <- max(p_values[-1])  # Ignore intercept (p-values[-1])
+    if (max_p_value <= 0.05) break
+    var_to_drop <- names(p_values)[which.max(p_values)]
+    formula <- as.formula(update(model, paste(". ~ . -", var_to_drop)))
+    model <- lm(formula, data = data)
+    print(summary(model))
+  }
+  return(model)
+}
+
+redu_mod <- drop_insignificant_vars(full_mod, com_prop_data)
+```
+
+```{r comp_org_mod_redu_mod_f}
+PredictedSig<-predict(redu_mod,com_prop_data)
+
+ModelSigData<-data.frame(obs = com_prop_data$Y,pred=PredictedSig)
+
+ModelSig=defaultSummary(ModelSigData)
+
+trns = rbind(ModelFull, ModelTrnsfrm, ModelSig)
+print(trns)
+```
+The significant model (`ModelSig`) performs better than the full model (`ModelFull`) and the earlier-transformed-via-box-cox transformed model (`ModelTrnsfrm`) across all three metrics. It has lower RMSE Original RMSE: 1.10, Transformed RMSE: 1.10, Significant RMSE: 0.94) and MAE (Original MAE: 0.83, Transformed MAE: 0.83, Significant MAE: 0.75) values, suggesting that it has more accurate predictions, and a higher $R^2$ value (Original: 0.5847, Transformed: 0.5863, Significant: 0.6957), indicating that it explains a greater proportion of the variance in the dependent variable. The significant model retains essential predictors while eliminating those that do not contribute significantly to the model’s explanatory power, resulting in better overall performance. 
+
+## Problem 3
+
+\textbf{Using the sat data set (type following commands in R Console: library(faraway);data("sat")). Fit a model with the total SAT score as the response and expend, salary, ratio and takers as predictors. Perform regression diagnostics on this model to answer the following questions. Display any plots that are relevant. Do not provide any plots about which you have nothing to say. Suggest possible improvements or corrections to the model where appropriate. (30 points, 5 points each)}
+
+```{r load_sat_data}
+sat_data <- as.data.frame(sat)
+sat_lm <- lm(total ~ expend + salary + ratio + takers, data=sat_data)
+summary(sat_lm)
+```
+At first glance, it seems only `takers` is a significant predictor variable, with others not being significant. However, let us examine the underlying data to see what is going on and to see whether we can improve the performance of the model. 
+
+\textbf{a-) Check the constant variance assumption for the errors.}
+```{r const_var}
+plot(sat_lm, which=1)
+```
+
+To check the assumption of constant variance we plot fitted values against the residuals to look for any structure in the distribution of values about the theoretical mean value line $E[\epsilon]=0$. For the most part, the variance shows random scatter, with a few potential outliers leading to the slight curvilinear nature of the line.
+
+To verify the constancy of variance, we will conduct the Brown-Forsythe Test. \newline
+$H_{o}~: \sigma_{1}^2 = \sigma_{2}^2 = ... =\sigma_{k}^2$ The error variances are constant (homoscedasticity). \newline
+$H_{a}: \sigma_{i}^2 \neq \sigma_{j}^2$ The error variances are not constant (heteroscedasticity), where at least one group variance is not equal. \newline
+The decision rule is as follows: \newline
+1. If $p-value \ge \alpha$, then we fail to reject $H_{0}$, concluding the error variances are constant. \newline
+2. If $p-value < \alpha$, then we reject $H_{0}$ and conclude $H_{a}$, concluding the error variances are not constant.\newline
+
+```{r brwn_frysth_full}
+ei <- residuals(sat_lm)
+bf_data <- data.frame(expend = sat_data$expend, salary = sat_data$salary, ratio = sat_data$ratio, takers = sat_data$takers, ei = ei)
+median_takers <- median(sat_data$takers)
+bf_data$takers_group <- as.factor(ifelse(bf_data$takers < median_takers, 1, 0))
+leveneTest(ei ~ takers_group, data = bf_data, center = median)
+```
+The Brown-Forsythe test assesses whether different groups exhibit equal variances, a condition known as homogeneity of variances. One advantage of this test is its robustness to non-normality in the data. In our analysis, the F statistic is 0.2056, with a p-value of 0.6523—significantly above the 0.05 threshold, so we are led to accept $H_{0}$ concluding that the error variances are constant, thereby indicating homoscedasticity. In other words, the variability of the residuals does not change across levels of the fitted values, and remains uniform.
+
+\textbf{b-) Check the normality assumption.}\newline
+```{r qq_norm_full}
+plot(sat_lm, which = 2)
+```
+
+The residuals appear normally distributed in the middle of the range; however, the distribution is slightly right skewed and there are a couple of points on the upper quantile (North Dakota, Utah) and one on the lower quantile (West Virgina) that deviates from the theoretical distribution which might be potential outliers.
+
+To test this using a non-parametric metric, I will conduct the __Shapiro-Wilk__ test. \newline
+First, let us state the hypotheses: \newline
+$H_o$: The residuals follow a normal distribution.\newline
+$H_a$: The residuals do not follow a normal distribution.\newline
+```{r shapiro_wilk_sat_lm}
+residuals <- residuals(sat_lm)
+shapiro_test_result <- shapiro.test(residuals)
+print(shapiro_test_result)
+```
+The W statistic measures how closely the sample distribution matches a normal distribution. Values close to 1 indicate that the sample distribution is similar to a normal distribution. A p-value of 0.4304 is quite high and above the chosen significance level $\alpha= 0.05$, thereby we accept $H_o$ and conclude there is not enough evidence to conclude that the residuals deviate significantly from normality. The residuals from our model do not show evidence of significant departure from normality based on the Shapiro-Wilk test. Thus, we can reasonably assume that the normality assumption for the residuals of our model is satisfied.
+
+\textbf{c-) Check for large leverage points.}
+
+```{r levg_sat_dta}
+ols_plot_resid_lev(sat_lm)
+
+influence_data <- influence(sat_lm)
+
+leverage <- hatvalues(sat_lm) # Leverage values
+standardized_residuals <- rstandard(sat_lm) # Standardized residuals
+
+# Define thresholds for outliers and high leverage
+# Threshold for high leverage: 2*(p+1)/n where p is the number of predictors, n is the number of observations
+n <- nrow(sat_data)
+p <- length(coef(sat_lm)) - 1
+leverage_threshold <- 2 * (p + 1) / n
+
+# Threshold for outliers (standardized residuals > 2 or < -2)
+outlier_threshold <- 2
+
+# Find indices of high leverage points
+high_leverage_indices <- which(leverage > leverage_threshold)
+
+# Find indices of outliers (standardized residuals)
+outlier_indices <- which(abs(standardized_residuals) > outlier_threshold)
+
+# Find indices of points that are both outliers and high leverage
+both_indices <- intersect(high_leverage_indices, outlier_indices)
+
+cat("Outliers: ", outlier_indices, "\n")
+cat("High Leverage Points: ", high_leverage_indices, "\n")
+cat("Both Outliers and High Leverage: ", both_indices, "\n")
+```
+
+```{r remv_high_levg}
+significant_indices <- which(leverage > leverage_threshold)
+sat_data_filtered <- sat_data[-significant_indices, ]
+sat_lm_wo_high_levg_pts <- lm(total ~ expend + salary + ratio + takers, data = sat_data_filtered) 
+summary(sat_lm_wo_high_levg_pts)
+```
+<br>      
+<table>
+<caption><span id="tab:table2">Table 1.2: </span>Examining Model Performance with and without High Leverage Points</caption>
+
+Variable          Model with High Leverage Points             Model without High Leverage Points            
+-------------     ----------------------                      ------------------ 
+RSE               32.7                                        31.75
+df                45                                          41 
+$R^2$             0.8246                                      0.8347
+Adj. $R^2$        0.809                                       0.8186
+Residuals - Min.  -90.531                                     -93.821
+Residuals - Max.  66.571                                      66.319
+</table>
+
+Removing high leverage observations from the model leads to a negligible enhancement in its performance. Specifically, we observe slight increment in $R^2$ value, indicating that the model explains a slightly greater amount of the variance in the response variable. Additionally, the range of residuals widens, suggesting reduced accuracy in predictions. There is a slight reduction in the Residual Standard Error (RSE) further confirms this trend, indicating a slightly more precise fit to the data. Importantly, the significance of t-values of each of the non-significant independent variables reduces closer to the significance level, but still remains far. This transformation to address high leverage points does not make a a strong case as a sole transformation on this data model to improve performance.\newline
+
+\textbf{d-) Check for outliers.}
+
+We venture to identify outliers by visualizing a diagnostic plot that displays studentized residuals versus fitted values in an ordinary least squares (OLS) regression model. Our graph identifies observation(s) 29, 44, 48 and 34 as potential outliers with a threshold of $\vert 2 \vert$, lower than the theoretical standardized residual threshold $\vert 3 \vert$.
+```{r ols_plot_del_res}
+ols_plot_resid_stud_fit(sat_lm)
+```
+
+```{r remv_outliers_mod}
+std_residuals <- rstudent(sat_lm)
+outlier_indices <- which(abs(std_residuals) > 2)
+sat_data_wo_outliers <- sat_data[-outlier_indices, ]
+sat_lm_wo_outliers <- lm(total ~ expend + salary + ratio + takers, data = sat_data_wo_outliers)
+summary(sat_lm_wo_outliers)
+```
+<br>      
+<table>
+<caption><span id="tab:table3">Table 1.3: </span>Examining Model Performance with and without Potential Outliers</caption>
+
+Variable          Model with Potential Outliers               Model without Potential Outliers            
+-------------     -----------------------------               --------------------------------
+RSE               32.7                                        24.36
+df                45                                          41 
+$R^2$             0.8246                                      0.8984
+Adj. $R^2$        0.809                                       0.8884
+Residuals - Min.  -90.531                                     -47.174
+Residuals - Max.  66.571                                      46.244 
+</table>
+
+Removing potential outlying observations from the model leads to a notable enhancement in its performance. Specifically, we observe a substantial increase in the $R^2$ value, indicating that the model now explains a greater proportion of the variance in the response variable. Additionally, the range of residuals tightens, suggesting improved accuracy in predictions. The reduction in the Residual Standard Error (RSE) further confirms this trend, indicating a more precise fit to the data. Importantly, the significance of the independent variable ratio emerges at the $\alpha = 0.01$ level, with a $t_{ratio}$ of 0.01. This revelation underscores the model’s refined ability to identify relevant predictors, highlighting the importance of addressing potential outlying points in regression analysis.\newline
+
+\textbf{e-) Check for influential points.}
+```{r ols_cooksd_graph}
+ols_plot_cooksd_chart(sat_lm)
+```
+
+```{r cooks_dist_sat_lm}
+cooks_threshold <- 0.08  # As identified from graph above
+cooks_distances <- cooks.distance(sat_lm)
+high_influence_points <- which(cooks_distances > cooks_threshold)
+cat("High influence points (Cook's Distance > ", cooks_threshold, "):\n")
+print(high_influence_points)
+cooksd_df <- data.frame(Index = 1:length(cooks_distances), Cook = cooks_distances)
+```
+There are two influential points (West Virginia and Utah) identified by Cook's Distance. Let us examine the performance of the model if we remove these influential points.
+
+```{r mod_wo_infl_pts}
+sat_lm_wo_infl_pts <- lm(total ~ expend + salary + ratio + takers, data = sat_data, subset = (cooks_distances < cooks_threshold))
+summary(sat_lm_wo_infl_pts)
+```
+<br>      
+<table>
+<caption><span id="tab:table4">Table 1.4: </span>Examining Model Performance with and without Influential Observations</caption>
+
+Variable          Model with High Leverage Points             Model without High Leverage Points            
+-------------     ----------------------                      ------------------ 
+RSE               32.7                                        27.69
+df                45                                          43 
+$R^2$             0.8246                                      0.8737
+Adj. $R^2$        0.809                                       0.8619
+Residuals - Min.  -90.531                                     -48.477
+Residuals - Max.  66.571                                      63.545 
+</table>
+
+Removing influential observations from the model leads to a notable enhancement in its performance. Specifically, we observe a substantial increase in the $R^2$ value, indicating that the model now explains a greater proportion of the variance in the response variable. Additionally, the range of residuals tightens, suggesting improved accuracy in predictions. The reduction in the Residual Standard Error (RSE) further confirms this trend, indicating a more precise fit to the data. Importantly, the significance of the independent variable ratio emerges at the $\alpha = 0.01$ level, with a $t_{ratio}$ of 0.01 (at a slightly lower significance than was observed when removing potential high leverage points $t_{ratio} = 0.0101$). This revelation underscores the model’s refined ability to identify relevant predictors, highlighting the importance of addressing influential points in regression analysis.\newline
+
+\textbf{f-) Check the structure of the relationship between the predictors and the response.}
+__Visualization__
+
+```{r scat_plot_mat_sat}
+scatterplotMatrix(sat[c("total","expend","ratio","salary","takers")], smooth=TRUE, regLine = TRUE)
+```
+
+From our scatterplot analysis at the beginning of the analysis, we observed a deviation between the smoothed lowess and the regression line plotted. Let's dive deeper into the model to see what else we can gather about the non-linear nature of this dataset.
+
+__ANOVA__ \newline
+Let's examine the anova of all four of the models to understand whether the predictors collectively explain a significant amount of variance in the response.
+
+```{r anova_sat_lm}
+combined_anova <- rbind(anova(sat_lm), anova(sat_lm_wo_infl_pts), anova(sat_lm_wo_outliers), anova(sat_lm_wo_high_levg_pts))
+print(combined_anova)
+```
+The ANOVA table summarizes the contribution of four predictor variables—expend, salary, ratio, and takers—in explaining the variability in the response variable total. I compared the models in order of creation: `sat_lm`, `sat_lm_wo_infl_pts`, `sat_lm_wo_outliers` and `sat_lm_wo_high_levg_pts.` Overall, the significant predictors—especially `takers`, followed by `expend` and `salary`—provide substantial explanatory power. However, `ratio`, while significant, does not contribute as strongly to explaining the variation in `total` in any of the models. The residual sum of squares (RSS) is reduced the most in the model without outliers, `sat_lm_wo_outliers`, at 24334 with the lowest mean squared error (MSE = 594). This suggests that the model, without a few of its challenging data points, fits the data reasonably well, but there is still some variability that is not captured by the predictors. This analysis implies that focusing on `takers` and `expend` could offer the most insight when predicting total, but further refinement of the model _(perhaps combining the removal of both high influence and outliers may generate a model that outperforms `sat_lm_wo_outliers`)_ may help improve the explanation of residual variance.
+
+__Component + Residual Plots to Detect Non-Linear Relationships between the Response and each Predictor Variable__
+```{r comp_resi_plots}
+crPlots(sat_lm)
+```
+
+_Interpretation of the plots_:\newline
+1. Expend: The residuals seem randomly scattered around zero, but there is a slight curvature suggesting that the relationship between expend and the response may not be purely linear.\newline
+2. Salary: The residuals are also fairly scattered around zero, with some indication of curvature, hinting at a possible non-linear relationship between salary and the response.\newline
+3. Ratio: There’s some variability in the residuals, though the overall pattern is more consistent around zero. This suggests that ratio is a reasonably good linear predictor, but the slight curvature might indicate the need for further exploration.\newline
+4. Takers: The residuals show a clear pattern of non-linearity, with the fitted curve (solid line) deviating significantly from a straight line. This strong curvature suggests that the relationship between “takers” and the response is highly non-linear.\newline
+
+The lowess smooth, the magenta curve, suggests that the linear model might not fully capture the complexity in the data for variables `takers`, `expend`, `ratio` and `salary`. The blue dashed lines represent the linear regression fit, and while they capture some instances of the relationship, they fail to reflect the curvilinear nature that arises. This suggests that transformations of these predictors, or considering a non-linear model, may improve the fit.
+
+__Multicolinearty Exploration__\newline
+Now, we examine whether there is multicolinearity between the predictors.
+
+```{r multi_col_chk}
+ols_vif_tol(sat_lm)
+```
+VIF values greater than 5 or 10 indicate multicollinearity issues, meaning that predictors may be highly correlated with each other, potentially distorting the model. We clearly see the presence of multicollinearity of expend and salary. High multicollinearity can inflate the standard errors of the coefficients, making it harder to assess their individual significance.
+
+We venture now to see if removing one of the multicollinear predictors will improve the performance of the model. As per the initial summary(sat_lm), expend (p-value = 0.674) is less significant than salary (p-value = 0.496), so we attempt to build a simplified model without this predictor. 
+
+First, we perform the General F-test to test whether we can justify dropping the `expend` variable:\newline
+$H_o$: $\beta_{expend}=0$\newline
+$H_a$: $\beta_{expend} \neq 0$ and it is significant so we cannot drop it.\newline
+
+```{r simpl_mod_sat}
+sat_lm_simplified <- lm(total ~ salary + ratio + takers, data = sat_data)
+anova(sat_lm_simplified,sat_lm)
+```
+The `anova()` function performs a hypothesis test comparing the two models, and in this case, the _p_-value is 0.6742 which is higher than our chosen significance $\alpha = 0.05$, so we fail to reject the null hypothesis and we can drop the predictor variable, `expend`.
+
+```{r simpl_mod_vif}
+ols_vif_tol(sat_lm_simplified)
+cat("Original Model: Adjusted R-squared =", summary(sat_lm)$adj.r.squared, "AIC =", AIC(sat_lm), "BIC =", BIC(sat_lm), "\n")
+cat("Simplified Model: Adjusted R-squared =", summary(sat_lm_simplified)$adj.r.squared, "AIC =", AIC(sat_lm_simplified), "BIC =", BIC(sat_lm_simplified), "\n")
+```
+Upon removing one of the multicolinear predictor, `expend`, we see no presence of significant multicolinearity in the variance inflation factors (VIFs) of the simplified model. There is a slight increase in the adjusted $R^2$ when comparing the original model and the simplified model. The Akaike Information Criterion (AIC), which assesses the trade-off between model complexity and goodness of fit, is lower in the simplified model suggesting that it has a better balance between goodness of fit and model complexity. The BIC (Bayesian Information Criterion), which penalizes model complexity but is generally stricter (especially when the sample size is large--not the case for us as we only have 50 observations in `sat_data`), is lower in the simplified model (505.13 compared to 508.84), which reinforces the conclusion that the simplified model is optimal.
+
+As an alternative, we can combine the two multicolinear variables in a weighted approach based on the correlation between each variable and the response variable (e.g., total) and assigning higher weight to the variable that has a stronger correlation. 
+
+```{r comb_multi_col_var}
+cor_salary <- cor(sat_data$salary, sat_data$total)
+cor_expend <- cor(sat_data$expend, sat_data$total)
+
+# Normalize the correlations to sum to 1
+total_cor <- cor_salary + cor_expend
+weight_salary <- cor_salary / total_cor
+weight_expend <- cor_expend / total_cor
+
+# Create the index using the correlation-based weights
+sat_data$salary_expend_index <- weight_salary * sat_data$salary + weight_expend * sat_data$expend
+
+sat_lm_comb <- lm(total ~ salary_expend_index + ratio + takers, data = sat_data)
+summary(sat_lm_comb)
+
+anova(sat_lm_comb, sat_lm)
+
+cat("Original Model: Adjusted R-squared =", summary(sat_lm)$adj.r.squared, "AIC =", AIC(sat_lm), "\n")
+cat("Simplified Model: Adjusted R-squared =", summary(sat_lm_comb)$adj.r.squared, "AIC =", AIC(sat_lm_comb), "\n")
+```
+When we perform the combined transformation to avoid the adverse effects of multicollinearity, we see a slight improvement in the Adjusted $R^2$ and a reduced AIC similar to what we observed when we dropped one of the insignificant multicollienar predictor variables. 
+
+__Interaction Effects__
+An interaction effect occurs when the effect of one or more independent variables on a dependent variable changes depending on the value of another independent variable. I will first build a second-order model of the centered variables in the sat_data, then using the observations from the scatter plot matrix, I will create other versions of the model.
+
+```{r full_vs_only_sig_trial}
+sat_data$expend_centered <- sat_data$expend - mean(sat_data$expend)
+sat_data$salary_centered <- sat_data$salary - mean(sat_data$salary)
+sat_data$ratio_centered <- sat_data$ratio - mean(sat_data$ratio)
+sat_data$takers_centered <- sat_data$takers - mean(sat_data$takers)
+
+# Full Model
+model_full_interaction <- lm(total ~ expend_centered * salary_centered * ratio_centered * takers_centered, data = sat_data)
+summary(model_full_interaction)
+
+# Only Significant Model 
+model_significant <- lm(total ~ takers_centered + expend_centered + expend_centered:salary_centered:ratio_centered + expend_centered:ratio_centered:takers_centered, data = sat_data)
+summary(model_significant) 
+
+anova(model_significant, model_full_interaction)
+```
+The second-order model reveals many significant terms due to the sheer volume of degrees of freedom, with the following significant at $\alpha = 0.05$: `expend_centered`, `takers_centered`, `expend_centered:salary_centered:ratio_centered` and `expend_centered:ratio_centered:takers_centered`. When we build a model with only significant predictors, it explains less variation than the additional interaction terms in the full model and it does not provide a statistically significant improvement in model fit at the 0.05 level (p = 0.06187). Neither of the models is successful at explaining the data significantly as we gathered when iterating through the second-order model earlier--you get different results with each variable you remove, so it needs to be an incremental process.
+
+Now, we opt to go step-wise in a manual manner to identify the most significant model for the SAT dataset.
+
+```{r fn_drop_insig_var_sat_dta}
+drop_insignificant_vars <- function(model, data) {
+  while (TRUE) {
+    p_values <- summary(model)$coefficients[, 4]
+    max_p_value <- max(p_values[-1])  # Ignore intercept (p-values[-1])
+    if (max_p_value <= 0.05) break
+    var_to_drop <- names(p_values)[which.max(p_values)]
+    formula <- as.formula(update(model, paste(". ~ . -", var_to_drop)))
+    model <- lm(formula, data = data)
+    print(summary(model))
+  }
+  return(model)
+}
+
+sat_redu_lm <- drop_insignificant_vars(model_full_interaction, sat_data)
+```
+
+```{r reduc_mod_sat_vif_chk}
+vif(sat_redu_lm, type = "predictor")
+```
+
+Given the high collinearity values of `takers_centered` and `salary_centered`, we aim to remove the least significant interaction term with either of this model.
+
+```{r rmv_reduc_mod_low_sig}
+model <- lm(total ~ expend_centered + takers_centered + 
+            expend_centered:salary_centered + 
+            expend_centered:ratio_centered + 
+            expend_centered:takers_centered + 
+            takers_centered:ratio_centered + 
+            expend_centered:salary_centered:ratio_centered + 
+            expend_centered:takers_centered:ratio_centered, 
+            data = sat_data)
+sat_redu_lm_L1 <- update(model, . ~ . -expend_centered:takers_centered:ratio_centered)
+summary(sat_redu_lm_L1)
+vif(sat_redu_lm_L1, type = "predictor") # SALARY_CENTERED COL. STILL HIGH
+
+sat_redu_lm_L2 <- update(model, . ~ . -expend_centered:salary_centered:ratio_centered)
+summary(sat_redu_lm_L2)
+vif(sat_redu_lm_L2, type = "predictor") #COL. ALL IN CONTROL
+```
+
+```{r org_vs_int_trm_mod}
+Predicted_Simpl <- predict(sat_redu_lm_L2, sat_data)
+ModelDataSimpl <- data.frame(obs = sat_data$total, pred = Predicted_Simpl)
+
+Predicted_Full <- predict(sat_lm, sat_data)
+ModelDataFull <- data.frame(obs = sat_data$total, pred = Predicted_Full)
+
+rbind(defaultSummary(ModelDataSimpl), defaultSummary(ModelDataFull))
+
+cat("[1,] Simplified Model: Adjusted R-squared =", summary(sat_redu_lm_L2)$adj.r.squared, "AIC =", AIC(sat_redu_lm_L2), "\n")
+cat("[2,] Original Model: Adjusted R-squared =", summary(sat_lm)$adj.r.squared, "AIC =", AIC(sat_lm), "\n")
+```
+When utilizing the Simplified Model with further modification to reduce multicollinearity we see a reduction in the error metrics (RMSE, MAE), a reduction in multicollinearity (recall: the vif values were near 9 ozf expend and salary in the original model), an increase in Adjusted $R^2$ (0.8342 > 0.8090) and a decrease in AIC when compared to the Original Model (492.82 < 497.37). This concludes our analysis of the structure of the relationship between the predictor variable(s) and the response variable wherein we leveraged ANOVA to compare the variation in total explained by each predictor variable in all four of the linear models we created, deciphered the component and residual plots to expose the curvilinear nature of the variables, explored and then reduced the multicollinearity present among the predictor variables and divulged the interaction effects that could be playing a role in weakening other variables (i.e., salary shows it is significant in reducing variation, but it is also highly collinear with takers and expend and removing it improves the performance of the model when it is leveraged in an interaction term with expend). This extensive analysis shows how much is hidden when we build a linear model with all predictors, and it is not until we dive deep into the data can we truly identify what the dat and variables intend to tell us. 

@@ -1,0 +1,475 @@
+---
+title: 'CSCI E-106:Assignment 9'
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, tidy = TRUE, width.cutoff = 80, fig.width = 6, fig.height = 4)
+options("scipen" = 12)
+  library(ggplot2)
+  library(faraway)
+  library(lattice)
+  library(caret)
+  library(ggfortify)
+  library(dplyr)
+  library(car)
+  library(gridExtra)
+  library(lmtest)
+  library(MASS)
+  library(GGally)
+  library(olsrr)
+  library(caret)
+  library(lmtest)
+  library(glmnet)
+  library(corrplot)
+  library(tree)
+  library(C50)
+  library(ipred)
+  library(randomForest)
+  library(gbm)
+  library(pROC)
+  library(olsrr)
+  library(rpart)
+  library(rpart.plot)
+```
+
+## Problem 1 
+
+\textbf{Refer to the "credit.reduced.data.csv" data. (25 points)}
+
+```{r read_credit_reduced}
+credit.reduced.data <- read.csv('/Users/shreyabajpai/CSCI E-106 - Data Modeling/CSCI E-106 Assignment 9/credit.reduced.data.csv')
+```
+\textbf{a-) Calculate the entropy values manually to build decision tree to predict default.  (20 pts)}
+
+Entropy ($E(S) = - \sum_{i=1}^{n} p_i \log_2(p_i)$) provides a baseline measure of impurity for the dataset.Calculating entropy helps us understand how pure or impure a node is. If all instances in a node belong to a single class, the entropy is 0 (pure). The more mixed the classes, the higher the entropy (up to 1 for a perfectly mixed binary set). Our entropy for the `default` response variable is 0.881, which suggests that there is a high degree of uncertainty or disorder, which means the dataset is relatively balanced in terms of the two classes (‘Yes’ and ‘No’), but it’s not perfectly mixed (which would be 1.0).
+
+```{r ent_cr_red}
+calc_entropy <- function(probabilities) {
+  -sum(probabilities * log2(probabilities))
+}
+
+# Calculate entropy for the target variable "default"
+target_entropy <- {
+  probs <- prop.table(table(credit.reduced.data$default))
+  calc_entropy(probs)
+}
+print(paste("Total Entropy for Default:", round(target_entropy, 3)))
+```
+
+```{r recur_ent_calc}
+set.seed(1023)
+calc_weighted_entropy <- function(credit.reduced.data, feature, target) {
+  feature_levels <- unique(credit.reduced.data[[feature]])
+  
+  weighted_entropy <- 0
+  for (level in feature_levels) {
+    subset_data <- credit.reduced.data[credit.reduced.data[[feature]] == level, ]
+    target_probs <- prop.table(table(subset_data[[target]]))
+    level_entropy <- calc_entropy(target_probs)
+    weight <- nrow(subset_data) / nrow(credit.reduced.data)
+    weighted_entropy <- weighted_entropy + weight * level_entropy
+  }
+  
+  return(weighted_entropy)
+}
+
+# Calculate weighted entropy for "checking_balance"
+weight_ent_checking_balance <- calc_weighted_entropy(credit.reduced.data, "checking_balance", "default")
+print(paste("Weighted Entropy for checking_balance:", round(weight_ent_checking_balance, 3)))
+
+# Calculate weighted entropy for months_loan_duration
+weight_ent_months_loan_duration <- calc_weighted_entropy(credit.reduced.data, "months_loan_duration", "default")
+print(paste("Weighted Entropy for months_loan_duration:", round(weight_ent_months_loan_duration, 3)))
+
+# Calculate weighted entropy for "credit_history"
+weight_ent_credit_history <- calc_weighted_entropy(credit.reduced.data, "credit_history", "default")
+print(paste("Weighted Entropy for credit_history:", round(weight_ent_credit_history, 3)))
+
+# Calculate weighted entropy for "purpose"
+weight_ent_purpose <- calc_weighted_entropy(credit.reduced.data, "purpose", "default")
+print(paste("Weighted Entropy for purpose:", round(weight_ent_purpose, 3)))
+
+# Calculate weighted entropy for "savings_balance"
+weight_ent_savings_balance <- calc_weighted_entropy(credit.reduced.data,  "savings_balance", "default")
+print(paste("Weighted Entropy for savings_balance:", round(weight_ent_savings_balance, 3)))
+
+# Calculate weighted entropy for "employment_length"
+weight_ent_employment_length <- calc_weighted_entropy(credit.reduced.data, "employment_length", "default")
+print(paste("Weighted Entropy for employment_length:", round(weight_ent_employment_length, 3)))
+
+# Calculate weighted entropy for "residence_history"
+weight_ent_residence_history <- calc_weighted_entropy(credit.reduced.data, "residence_history", "default")
+print(paste("Weighted Entropy for residence_history:", round(weight_ent_residence_history, 3)))
+
+# Calculate weighted entropy for "property"
+weight_ent_property <- calc_weighted_entropy(credit.reduced.data, "property", "default")
+print(paste("Weighted Entropy for property:", round(weight_ent_property, 3)))
+
+# Calculate weighted entropy for "housing"
+weight_ent_housing <- calc_weighted_entropy(credit.reduced.data, "housing", "default")
+print(paste("Weighted Entropy for housing:", round(weight_ent_housing, 3)))
+
+# Calculate weighted entropy for "existing_credits"
+weight_ent_existing_credits <- calc_weighted_entropy(credit.reduced.data, "existing_credits", "default")
+print(paste("Weighted Entropy for existing_credits:", round(weight_ent_existing_credits, 3)))
+```
+Next, we calculate information gain, which quantifies the improvement in purity when splitting on different attributes, guiding the decision on the best attribute for a split. This systematic approach helps create a tree structure that minimizes the overall entropy (or impurity) and maximizes classification accuracy.
+
+$IG(S, A) = E(S) - \sum_{v \in Values(A)} \frac{|S_v|}{|S|} E(S_v)$
+Where:
+
+- $E(S)$is the entropy of the dataset $S$.
+- $S_v$  is the subset of  S  where feature  A  takes the value $v$.
+- $\frac{|S_v|}{|S|}$  is the proportion of instances in subset $S_v$  relative to the total size of $S$.
+- $E(S_v)$  is the entropy of the subset $S_v$.
+
+```{r calc_info_gain}
+calculate_information_gain <- function(target_entropy, ...) {
+  gains <- list(...)
+  for (feature in names(gains)) {
+    inf_gain <- target_entropy - gains[[feature]]
+    rounded_gain <- round(inf_gain, 3)
+    cat(paste("Information Gain for", feature, ":", rounded_gain, "\n"))
+  }
+}
+
+calculate_information_gain(
+  target_entropy,
+  checking_balance = weight_ent_checking_balance,
+  months_loan_duration = weight_ent_months_loan_duration,
+  credit_history = weight_ent_credit_history,
+  purpose = weight_ent_purpose,
+  savings_balance = weight_ent_savings_balance,
+  employment_length = weight_ent_employment_length,
+  residence_history = weight_ent_residence_history,
+  property = weight_ent_property,
+  housing = weight_ent_housing,
+  existing_credits = weight_ent_existing_credits
+)
+```
+
+```{r best_split_cred_red}
+information_gains <- c(
+  checking_balance = 0.095,
+  months_loan_duration = 0.035,
+  credit_history = 0.044,
+  purpose = 0.025,
+  savings_balance = 0.028,
+  employment_length = 0.013,
+  residence_history = 0.001,
+  property = 0.017,
+  housing = 0.013,
+  existing_credits = 0.002
+)
+
+top_5_splits <- sort(information_gains, decreasing = TRUE)[1:5]
+
+cat("Top 5 features for tree splits based on information gain:\n")
+for (feature in names(top_5_splits)) {
+  cat(feature, "with an information gain of:", round(top_5_splits[feature], 3), "\n")
+}
+```
+
+\textbf{b-) Use C5.0 library to build the decision tree and compare your answers in part a. (5 pts)}
+
+```{r dec_tree_credit_reduced}
+categorical_cols <- c("checking_balance", "months_loan_duration", "credit_history", "purpose", "savings_balance", "employment_length", "property", "housing", "default")
+credit.reduced.data[categorical_cols] <- lapply(credit.reduced.data[categorical_cols], as.factor)
+
+set.seed(123)
+train_indices <- sample(1:nrow(credit.reduced.data), 0.7 * nrow(credit.reduced.data))
+train_data <- credit.reduced.data[train_indices, ]
+test_data <- credit.reduced.data[-train_indices, ]
+prop.table(table(train_data$default))
+
+tree_model <- C5.0(default ~ ., data = train_data)
+summary(tree_model)
+
+predictions <- predict(tree_model, test_data)
+
+confusion_matrix_test <- confusionMatrix(predictions, test_data$default, mode = "prec_recall", positive = "Yes")
+print(confusion_matrix_test)
+```
+| Manual Tree            | C.50 Tree              |
+|------------------------|------------------------|
+| checking_balance       | checking_balance       |
+| credit_history         | months_loan_duration   |
+| months_loan_duration   | credit_history         |
+| savings_balance        | savings_balance        |
+| purpose                | purpose                |
+| property               | employment_length      |
+| employment_length      | property               |
+| housing                | residence_history      |
+| existing_credits       |                        |
+| residence_history      |                        |
+
+We can see the order of nodes in the tree via `C.50` library is not an exact replica of the tree generated manually ordered on lowest to highest entropy. We see the automated approach drops variables (`housing`, `existing_credits`) and reorders certain strong attributes (`months_loan_duration` and `credit_history` are switched, `employment_length` and `property` are switched) in an order considering other factors than entropy alone.
+
+## Problem 2
+
+__The pima dataset consists of 768 female Pima Indians. We want to predict the diabetes test result from the other predictors To get the data set, copy and paste the r command: data(pima,package=“faraway”). Use 70% of the data for train data set and use remaining data (30% of data) for test data set (use set.seed(456)). (25 points, 5 points each)__
+
+```{r pima_clean_n_load}
+data("pima")
+pima$test = as.factor(pima$test)
+zero_counts <- sapply(pima, function(x) sum(x == 0))
+impossible_predictors <- c("glucose", "triceps", "bmi", "insulin", "diastolic")
+pima[impossible_predictors] <- lapply(pima[impossible_predictors], function(x) {
+  x[x == 0] <- NA
+  return(x)
+})
+pima_clean <- na.omit(pima)
+set.seed(456)
+DataSplitPima<-createDataPartition(y = pima_clean$test, p = 0.7, list = FALSE)
+train.pima <- pima_clean[DataSplitPima,]
+test.pima <- pima_clean[-DataSplitPima, ]
+```
+
+\textbf{a-) Fit a tree model on the train data set and evaluate the performance on the test data set. (5 Points)}
+
+```{r pima_mod_train}
+pima.tree.mod <- tree(test ~ ., data = train.pima)
+summary(pima.tree.mod)
+plot(pima.tree.mod, type = "uniform", col = "blue", lwd = 2, main = "Regression Tree for PIMA Outcome Prediction")
+text(pima.tree.mod, pretty = 0, cex = 0.8, col = "darkred")
+
+tree.test.pred <- predict(pima.tree.mod, test.pima, type = "class")
+confusion_matrix_test <- confusionMatrix(tree.test.pred, test.pima$test, mode="prec_recall", positive = "1")
+confusion_matrix_test
+```
+
+\textbf{b-) Use Bagging method on the train data set and evaluate the performance on the test data set. (5 pts)}
+
+```{r pima_bagging}
+bagging_model <- randomForest(test ~ ., data = train.pima, mtry = ncol(train.pima) - 1, importance = TRUE, ntree = 500)
+predictions.pima.bagg <- predict(bagging_model, newdata = test.pima, type = "response")
+conf.matrix.pima.bag <- confusionMatrix(predictions.pima.bagg, test.pima$test, positive = "1", mode = "prec_recall")
+print(conf.matrix.pima.bag)
+```
+
+\textbf{c-) Use Boosting method on the train data set and evaluate the performance on the test data set. (5 pts)}
+
+```{r pima_boosting}
+boosting_model <- C5.0(test ~ ., data = train.pima, trials = 10)
+summary(boosting_model)
+
+boosting_predictions <- predict(boosting_model, test.pima)
+
+conf.matrix.pima.boost <- confusionMatrix(as.factor(boosting_predictions),as.factor(test.pima$test),mode="prec_recall", positive = "1")
+conf.matrix.pima.boost
+```
+
+\textbf{d-) Use Random Forest method on the train data set and evaluate the performance on the test data set. (5 pts)}
+
+```{r pima_random_forest}
+rf_model <- randomForest(test ~ ., data = train.pima)
+
+rf_predictions <- predict(rf_model, newdata = test.pima, type = "response")
+
+conf.matrix.pima.rf <- confusionMatrix(as.factor(rf_predictions), test.pima$test, mode="prec_recall", positive = "1")
+print(conf.matrix.pima.rf)
+```
+
+\textbf{e-) Check the model performances of each on the test data set, which model would you choose? (5 Points)}
+
+```{r comp_vs_cont_pima}
+rf_roc <- roc(test.pima$test, as.numeric(rf_predictions))
+boosting_roc <- roc(test.pima$test, as.numeric(boosting_predictions))
+bagging_roc <- roc(test.pima$test, as.numeric(predictions.pima.bagg))
+tree_roc <- roc(test.pima$test, as.numeric(tree.test.pred))
+
+rf_auc <- auc(rf_roc)
+boosting_auc <- auc(boosting_roc)
+bagging_auc <- auc(bagging_roc)
+tree_auc <- auc(tree_roc)
+
+plot(rf_roc, col = "red", main = "ROC Curves for Different Models")
+plot(boosting_roc, col = "blue", add = TRUE)
+plot(bagging_roc, col = "green", add = TRUE)
+plot(tree_roc, col = "purple", add = TRUE)
+
+legend("bottomright", legend = c(paste("Random Forest (AUC = ", round(rf_auc, 2), ")", sep = ""),
+                                 paste("Boosting (AUC = ", round(boosting_auc, 2), ")", sep = ""),
+                                 paste("Bagging (AUC = ", round(bagging_auc, 2), ")", sep = ""),
+                                 paste("Decision Tree (AUC = ", round(tree_auc, 2), ")", sep = "")),
+       col = c("red", "blue", "green", "purple"), lty = 1, cex = 0.8)
+
+f1_rf <- conf.matrix.pima.rf$byClass['F1']
+f1_boost <-conf.matrix.pima.boost$byClass['F1']
+f1_bag <- conf.matrix.pima.bag$byClass['F1']
+f1_tree <- confusion_matrix_test$byClass['F1']
+cbind(f1_tree, f1_bag, f1_boost, f1_rf)
+```
+In comparing the AUC and F1 scores of the four models—Bagging, Boosting, Random Forest, and Decision Tree—I found that Bagging stands out as the most effective. With the highest F1 score and an AUC of 0.77, it strikes the best balance between precision and recall, offering strong discrimination between the positive and negative classes. This is likely due to Bagging’s ability to reduce variance, making it less prone to overfitting compared to individual decision trees. Boosting, while slightly behind in F1 score, still performs very well and excels at reducing bias, which is particularly helpful in cases of underfitting. However, it can suffer from overfitting if not tuned properly. Random Forest, with an AUC of 0.75, offers moderate performance but doesn’t quite match the precision-recall balance of Bagging or Boosting, possibly due to suboptimal default tuning for this dataset. The Decision Tree model performs the worst, with both the lowest F1 score and AUC, which is unsurprising given that individual decision trees tend to be highly sensitive to the training data, making them prone to overfitting or underfitting, especially in noisy data. Overall, Bagging emerges as the preferred choice, offering the most reliable balance, while Boosting remains a strong alternative. Random Forest and Decision Tree, while useful in certain contexts, didn’t perform as well in this case. This comparison, integrating AUC, F1 scores, and ROC curves, offers a clear picture of model performance and guides the selection of the most effective model.
+
+## Problem 3
+
+\textbf{Refer to the Prostate cancer data set. Serum prostate-specific antigen (PSA) was determined in 97 men with advanced prostate cancer. PSA is a well-established screening test for prostate cancer and the oncologists wanted to examine the correlation between level of PSA and a number of clinical measures for men who were about to undergo radical prostatectomy. The measures are cancer volume, prostate weight, patient age, the amount of benign prostatic hyperplasia, seminal vesicle invasion, capsular penetration, and Gleason score. (50 pts)} 
+
+\textbf{Select a random sample of 65 observations to use as the train data set (Please use set.seed(567)) and reamining observations as the test data set.}
+
+```{r read_pros_cancer}
+PCa.data <- read.csv('/Users/shreyabajpai/CSCI E-106 - Data Modeling/CSCI E-106 Assignment 9/Prostate Cancer.csv')
+PCa.data$Seminal.vesicle.invasion <- factor(PCa.data$Seminal.vesicle.invasion)
+PCa.data$Gleason_7 <- factor(ifelse(PCa.data$Gleason.score == 7, 1, 0))
+PCa.data$Gleason_8 <- factor(ifelse(PCa.data$Gleason.score == 8, 1, 0))
+PCa.data <- PCa.data[, !(names(PCa.data) == "Gleason.score")]
+str(PCa.data)
+set.seed(567)
+train_index <- sample(1:nrow(PCa.data), size = 65)
+train.PCa <- PCa.data[train_index, ]
+test.PCa <- PCa.data[-train_index, ]
+```
+\textbf{Use the train data set to answer the following questions.}
+
+\textbf{a-) Develop a best subset model for predicting PSA. Justify your choice of model. Assess your model's ability to predict and discuss its usefulness to the oncologists.(5 pts)}
+
+```{r ols_PCa}
+PCa.lmod <- lm(PSA.level ~ ., data = train.PCa)
+ols_step_best_subset(PCa.lmod)
+
+PCA.lmod.subset <- lm(PSA.level ~ Cancer.volume + Weight + Age + Capsular.penetration, data = train.PCa) # This model explains a significant amount of the variance in PSA levels without including too many predictors that 
+# lead to overfitting or unnecessary complexity. Each variable in this model has clinical relevance and is likely useful for oncologists in understanding and predicting PSA levels.
+summary(PCA.lmod.subset)
+
+# Cross-validation 
+train_control <- trainControl(method = "cv", number = 10)  # 10-fold cross-validation
+
+# Train the model with cross-validation
+PCa.lmod.cv <- train(PSA.level ~ ., data = train.PCa, method = "lm", trControl = train_control)
+PCA.lmod.subset.cv <- train(PSA.level ~ Cancer.volume + Weight + Age + Capsular.penetration, data = train.PCa, method = "lm", trControl = train_control)
+
+print(PCa.lmod.cv)
+print(PCA.lmod.subset.cv)
+```
+In developing a best subset model for predicting PSA, we began with a full linear regression model using all available predictors. The ols_step_best_subset function was employed to identify the most relevant variables for PSA prediction, leading to a subset model that included Cancer.volume, Weight, Age, and Capsular.penetration. These variables were chosen based on their strong relationships with PSA levels, while maintaining model simplicity.
+
+To evaluate the model’s predictive performance, we applied 10-fold cross-validation, which provided more reliable estimates of the model’s generalizability. The full model, which incorporated all predictors, exhibited a lower RMSE (25.77) and higher R-squared (0.6542) compared to the subset model, which had an RMSE of 26.35 and R-squared of 0.5224. Although the full model performed slightly better in terms of RMSE and R-squared, the subset model showed a marginally lower MAE (17.46 vs. 18.27), indicating that it provided more consistent predictions on average.
+
+Despite the slightly reduced predictive performance of the subset model in terms of RMSE and R-squared, it offers a simpler and more focused approach by concentrating on the most clinically relevant predictors. The higher R-squared for the full model suggests that it captures more of the variance in PSA levels, but the subset model’s smaller number of predictors makes it easier to interpret and apply clinically.
+
+For oncologists, the subset model is particularly valuable as it emphasizes key clinical factors—such as cancer volume and capsular penetration—that are strongly correlated with PSA levels. These predictors offer insights into how PSA relates to important disease characteristics, which can aid in clinical decision-making and risk stratification for patients undergoing radical prostatectomy. Furthermore, the subset model’s simplicity and interpretability make it a practical and accessible tool for oncologists to use in clinical settings, even though the full model provides slightly better overall performance.
+
+\textbf{b-) Develop a regression tree for predicting PSA. Justify your choice of number of regions (tree size), and interpret your regression tree. (10 pts)}
+
+```{r tree_PCa}
+PCa.tree.mod <- rpart(PSA.level ~ ., data = train.PCa, method = "anova")
+summary(PCa.tree.mod)
+rpart.plot(PCa.tree.mod, main = "Regression Tree for PSA Prediction")
+
+tree_predictions <- predict(PCa.tree.mod, newdata = test.PCa)
+
+# Evaluate model performance using RMSE, MAE, and R-squared
+rmse_tree <- sqrt(mean((tree_predictions - test.PCa$PSA.level)^2))
+mae_tree <- mean(abs(tree_predictions - test.PCa$PSA.level))
+
+# Calculate R-squared
+ss_residual_tree <- sum((tree_predictions - test.PCa$PSA.level)^2)
+ss_total_tree <- sum((test.PCa$PSA.level - mean(test.PCa$PSA.level))^2)
+r_squared_tree <- 1 - (ss_residual_tree / ss_total_tree)
+
+# Print performance metrics
+cat("RMSE: ", rmse_tree, "\n")
+cat("MAE: ", mae_tree, "\n")
+cat("R-squared: ", r_squared_tree, "\n")
+cat("SSE: ", ss_residual_tree, "\n")
+```
+The regression tree shows that `Cancer.volume` is the most significant predictor of PSA levels, followed by `Capsular.penetration.` Overall, the regression tree’s performance could be improved. An R-squared of 0.46472 suggests that the model is only moderately successful in explaining the variability in PSA levels. The RMSE and MAE values further reflect a moderate to high level of error in predictions, particularly compared to the range of values typically seen in PSA measurements. While the regression tree offers some interpretability, it does not seem to provide highly accurate predictions. For oncologists, the model might be useful as an initial tool for identifying factors influencing PSA levels, but it would likely need refinement to enhance predictive accuracy and reduce errors for clinical decision-making.
+
+\textbf{c-) Develop a lasso regression model to predict PSA and interpret your model. (10 pts)}
+
+```{r PCa_lasso}
+x <- model.matrix(PSA.level~., train.PCa)[,-c(1)]
+y <- train.PCa$PSA.level
+LassoMod <- glmnet(x, y, alpha=1, nlambda=100,lambda.min.ratio=0.0001)
+plot(LassoMod,xvar="norm",label=TRUE)
+
+CvLassoMod <- cv.glmnet(x, y, alpha=1, nlambda=100,lambda.min.ratio=0.0001)
+par(mfrow=c(1,1))
+plot(CvLassoMod)
+
+best.lambda.lasso <- CvLassoMod$lambda.min
+best.lambda.lasso
+coef(CvLassoMod, s = "lambda.min")
+
+sst <- sum((y- mean(y))^2)
+y_hat.lasso <- predict(LassoMod, s = best.lambda.lasso, newx = x)
+residuals_lasso <- y - y_hat.lasso
+rmse_lasso <- sqrt(mean(residuals_lasso^2))
+mae_lasso <- mean(abs(residuals_lasso))
+sse.lasso <- sum((y-y_hat.lasso)^2)
+rsq.lasso <- 1- sse.lasso / sst
+cbind(sse.lasso,rsq.lasso, rmse_lasso, mae_lasso)
+```
+The Lasso model is performing reasonably well with a moderate R-squared value of 0.557. It has identified the most important predictors (such as `Cancer.volume`, `Age`, `Capsular.penetration`, and `Gleason scores`) while excluding less relevant predictors like `Benign.prostatic.hyperplasia` and `Seminal.vesicle.invasion.` The Regression Tree model exhibits an RMSE of 30.79 and an MAE of 16.02, with an R-squared value of 0.4647, indicating a moderate fit to the data. The Lasso Regression model, on the other hand, achieves a lower RMSE of 26.45 and MAE of 14.71, along with a higher R-squared value of 0.5572, suggesting a better overall fit and predictive performance. However, the SSE for the Lasso model (45,489.91) is higher than the Regression Tree’s (30,330.39), indicating that despite the improved fit, the Lasso model has larger residuals. Overall, the Lasso Regression appears to provide a more accurate prediction in terms of RMSE and MAE, while the Regression Tree model strikes a balance between fit and error.
+
+
+| Model             | RMSE    | MAE     | R-squared | SSE     |
+|-------------------|---------|---------|-----------|---------|
+| Regression Tree   | 30.78676| 16.01821| 0.46472   | 30330.39|
+| Lasso Regression  | 26.45458| 14.7122 | 0.5571887 | 45489.91|
+
+\textbf{Use the test data set to answer the following questions.}
+
+\textbf{d-) Compare the performance of your regression tree model with that of the best regression model. Which model is more easily interpreted and why? (10 pts)}
+
+```{r PCa_test_reg_tree_vs_reg_mod}
+# Predictions on test data
+tree_predictions <- predict(PCa.tree.mod, newdata = test.PCa)
+regression_predictions <- predict(PCA.lmod.subset, newdata = test.PCa)
+
+# Calculate RMSE, MSE, and R-squared for the tree model
+tree_mse <- mean((test.PCa$PSA.level - tree_predictions)^2)
+tree_rmse <- sqrt(tree_mse)
+tree_r2 <- 1 - (sum((test.PCa$PSA.level - tree_predictions)^2) / sum((test.PCa$PSA.level - mean(test.PCa$PSA.level))^2))
+
+# Calculate RMSE, MSE, and R-squared for the regression model
+regression_mse <- mean((test.PCa$PSA.level - regression_predictions)^2)
+regression_rmse <- sqrt(regression_mse)
+regression_r2 <- 1 - (sum((test.PCa$PSA.level - regression_predictions)^2) / sum((test.PCa$PSA.level - mean(test.PCa$PSA.level))^2))
+
+cat("Tree Model Performance:\n")
+cat("MSE:", tree_mse, "\nRMSE:", tree_rmse, "\nR-squared:", tree_r2, "\n\n")
+
+cat("Best Subset Regression Model Performance:\n")
+cat("MSE:", regression_mse, "\nRMSE:", regression_rmse, "\nR-squared:", regression_r2, "\n")
+```
+The regression tree has a lower Mean Squared Error (MSE) of 947.82 compared to 2432.68 for the best subset regression model. This indicates that, on average, the tree model’s predictions are closer to the actual PSA levels. Similarly, the Root Mean Squared Error (RMSE) of 30.79 for the tree model shows that the average prediction deviation is smaller than the 49.32 observed for the subset model. The tree model’s $R^2$ of 0.4647 indicates that it explains about 46.47% of the variance in the PSA levels. This shows that the model has predictive power. On the other hand, the best subset regression model’s negative $R^2$ of -0.3738 implies that it performs worse than simply using the mean as a prediction, which is a clear sign of an ineffective model. This could be due to issues such as multicollinearity, overfitting, or an insufficient model structure. The regression tree stands out as the better model due to its stronger performance metrics and more accessible interpretability. Its visual, rule-based structure provides a transparent and intuitive way to understand the relationships between predictors and PSA levels.
+
+\textbf{e-) Compare the performance of your lasso regression model with that of the best regression model and tree model. (10 pts)}
+
+```{r PCa_lasso_vs_regmod_treemod}
+# Lasso model predictions
+lasso_predictions <- predict(LassoMod, s = best.lambda.lasso, newx = as.matrix(test.PCa[, -which(names(test.PCa) == "PSA.level")]))
+lasso_predictions <- as.vector(lasso_predictions)
+
+calculate_metrics <- function(actual, predicted) {
+  mse <- mean((actual - predicted)^2)
+  rmse <- sqrt(mse)
+  r2 <- 1 - (sum((actual - predicted)^2) / sum((actual - mean(actual))^2))
+  return(list(MSE = mse, RMSE = rmse, R2 = r2))
+}
+metrics_lasso <- calculate_metrics(test.PCa$PSA.level, lasso_predictions)
+
+model_comparison <- data.frame(
+  Model = c("Tree Model", "Best Subset Regression", "Lasso Regression"),
+  MSE = c(tree_mse, regression_mse, metrics_lasso$MSE),
+  RMSE = c(tree_rmse, regression_rmse, metrics_lasso$RMSE),
+  R_squared = c(tree_r2, regression_r2, metrics_lasso$R2)
+)
+
+print(model_comparison)
+```
+The regression tree model remains the top performer on the test data, explaining 46% of the variance (R-squared = 0.4647). Its RMSE of 30.79 indicates reasonable prediction accuracy, with predictions typically deviating by about 30 units from the actual values. In contrast, both the best subset regression and Lasso regression models perform poorly, with negative R-squared values of -0.37385 and -0.10069, respectively. These negative values suggest that both models fail to generalize to the test data, underperforming even compared to predicting the mean of the target variable. The best subset regression model likely suffers from overfitting, while the Lasso model shows signs of insufficient regularization. Overall, the regression tree model stands out for its better performance and interpretability, offering a more reliable and robust solution for the given task.
+
+\textbf{f-) Which model is more easily interpreted and why? (5pts)}
+
+The regression tree stands out as the more easily interpretable model, offering both superior performance metrics and an intuitive structure. Its visual, rule-based representation clearly illustrates how predictors influence PSA levels, making it accessible to both technical and non-technical stakeholders. This clarity helps communicate complex relationships in a straightforward way, facilitating decision-making and practical applications.
+
+A key strength of regression trees is their ability to naturally model non-linear relationships and interactions between variables, without the need for explicitly defined interaction terms as in traditional regression models. For instance, if PSA levels change differently across age groups at varying cancer volume thresholds, a regression tree can seamlessly capture these nuances within its branches. In contrast, traditional regression models with multiple predictors and interactions require careful interpretation of coefficients, making them more difficult to understand and explain.
+
+Ultimately, regression trees offer a more holistic and intuitive approach, particularly when relationships between variables are complex and non-linear. This makes them not only effective in predictive performance but also valuable for communicating insights in a way that is easily understood and trusted by a diverse audience.
